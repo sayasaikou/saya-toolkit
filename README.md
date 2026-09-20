@@ -14,7 +14,7 @@
 | [`blender-headless/`](blender-headless/) | Blender 无头渲染脚本集说明 | 批量多视角渲染与材质问题定位依赖手工操作 |
 | [`comfy-pipeline/`](comfy-pipeline/) | ComfyUI 批量出图与提示词生成 | 多底模调用方式不统一；生成结果趋于同质化（固定站姿、背景单一） |
 | [`incident-notes/`](incident-notes/) | 故障复盘（根因分析） | 同类故障的复现与定位成本 |
-| [`docs/`](docs/) | 收录范围与脱敏规则 | 说明哪些内容适合公开、哪些必须保留在私有环境 |
+| [`docs/`](docs/) | 收录范围、脱敏规则与仓库审计记录 | 说明哪些内容适合公开、哪些必须保留在私有环境 |
 
 ## 组件说明
 
