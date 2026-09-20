@@ -4,8 +4,27 @@ param(
     [switch]$LogOnly,
     [string]$LogPath = '',
     [string]$DshRoot = $(if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }),
-    [string]$Workspace = '$env:DSH_WORKSPACE'
+    [string]$Workspace = $(if ($env:DSH_WORKSPACE) { $env:DSH_WORKSPACE } else { Join-Path $env:USERPROFILE 'workspace' })
 )
+
+# ---------------------------------------------------------------------------
+# WHAT TO WATCH - edit these two for your own deployment.
+#
+#   $MonitoredTasks : scheduled task names this script reports on (every run).
+#                     Read yours with:  Get-ScheduledTask | Select TaskName
+#                     Empty list = skip the whole task section.
+#
+#   $PersonaPlugin  : OPTIONAL, DSH-specific. Name of a plugin directory under
+#                     "<DshRoot>\profiles\web\plugins\" whose own check script
+#                     self-verifies an injected prompt/persona (the author's is
+#                     'dafatfish', which injects a character spec on session
+#                     start). If the directory is absent the check is reported
+#                     as "n/a" - never a warning. Set to '' to disable.
+# ---------------------------------------------------------------------------
+$script:MonitoredTasks = @()  # e.g. @('MyBackupTask','MyWatchdog')
+$script:PersonaPlugin  = ''  # e.g. 'my-persona-plugin'
+$script:BootExpect     = @()  # e.g. @('my-plugin/client.js')
+$script:MemeGlob       = ''   # e.g. 'my-memes\*'
 
 # ---------------------------------------------------------------------------
 # HANDOFF drift check / renderer.
@@ -107,19 +126,19 @@ function Get-TaskFact {
 }
 
 function Get-MemeFact {
-    $dir = "${DshRoot}\profiles\web\node_modules\dsh-meme\memes"
+    $dir = if ($script:MemeGlob) { Join-Path $DshRoot $script:MemeGlob } else { '' }
     if (-not (Test-Path -LiteralPath $dir)) { NewWarn "meme dir missing: $dir"; return $null }
     $files = Get-ChildItem -LiteralPath $dir -File -Recurse -ErrorAction SilentlyContinue
     return [ordered]@{
         total     = $files.Count
         official  = @($files | Where-Object { $_.FullName -match 'official-' }).Count
-        dafatfish = @($files | Where-Object { $_.FullName -match 'dafeiyu-' }).Count
+        custom    = @($files | Where-Object { $_.Name -notmatch '^official-' }).Count
     }
 }
 
-function Get-NodeFact {
+function Get-NodeFact {  # resolves the node interpreter used for JS-side checks
     $found = $null
-    foreach ($p in @($script:NodeExe, 'C:\Program Files\nodejs\node.exe')) {
+    foreach ($p in @($script:NodeExe, 'C:\Program Files\nodejs\node.exe', 'C:\Program Files (x86)\nodejs\node.exe') + (Get-Command node -ErrorAction SilentlyContinue | ForEach-Object { $_.Source })) {
         if (Test-Path -LiteralPath $p) {
             $v = $null
             try { $v = (& $p --version 2>&1 | Out-String).Trim() } catch { $v = 'unrunnable' }
@@ -128,7 +147,7 @@ function Get-NodeFact {
         }
     }
     if ($null -eq $found) { NewWarn "no node interpreter found (tried $script:NodeExe)"; return $null }
-    if (-not (Test-Path -LiteralPath 'C:\Program Files\nodejs\node.exe')) { $script:NodeNote = 'C:\Program Files\nodejs\node.exe absent (expected)' }
+    # Node resolved from PATH or a standard install dir; nothing further to note.
     return $found
 }
 
@@ -160,7 +179,11 @@ function Get-BootFact {
 }
 
 function Get-PersonaFact {
-    $stampPath = "${DshRoot}\profiles\web\plugins\dafatfish\_loaded.stamp"
+    # Optional, deployment-specific check. With no plugin configured, or with the
+    # plugin directory absent, this reports nothing at all and raises no warning.
+    if ([string]::IsNullOrEmpty($script:PersonaPlugin)) { return $null }
+    if (-not (Test-Path -LiteralPath "${DshRoot}\profiles\web\plugins\$($script:PersonaPlugin)")) { return $null }
+    $stampPath = "${DshRoot}\profiles\web\plugins\$($script:PersonaPlugin)\_loaded.stamp"
     $stamp = $null
     $txt = Read-TextSafe $stampPath
     if ($null -ne $txt) {
@@ -174,7 +197,7 @@ function Get-PersonaFact {
     }
     $checkPass = $null; $checkTotal = $null; $checkFail = $null
     try {
-        $out = & $script:NodeExe "${DshRoot}\profiles\web\plugins\dafatfish\check.mjs" 2>&1 | Out-String
+        $out = & $script:NodeExe "${DshRoot}\profiles\web\plugins\$($script:PersonaPlugin)\check.mjs" 2>&1 | Out-String
         $pass = @($out -split "`r?`n" | Where-Object { $_ -match '^\s*\[OK\]' }).Count
         $fail = @($out -split "`r?`n" | Where-Object { $_ -match '^\s*\[FAIL\]' }).Count
         $checkPass = $pass; $checkFail = $fail; $checkTotal = $pass + $fail
@@ -266,9 +289,9 @@ Say ("now        : " + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
 $node = Get-NodeFact
 Say ("node       : " + $(if ($node) { "$($node.path) $($node.version)" } else { 'NOT FOUND' }))
 $persona = Get-PersonaFact
-$boot = Get-BootFact -Expect @('dsh-meme/client.js', 'skin-maid-atelier/client.js', 'skin-deep-whale-manager/client.js', 'dshmarket/client.js', 'dsh-web-restart/client.js')
+$boot = Get-BootFact -Expect $script:BootExpect
 $skin = Get-SkinFact
-$tasks = Get-TaskFact -Names @('DSH_KillEndfield', 'EndfieldStart_LaunchMaaEnd', 'DSH_HandoffCheck')
+$tasks = Get-TaskFact -Names $script:MonitoredTasks
 $memes = Get-MemeFact
 $files = @()
 foreach ($w in (Parse-WatchFiles $statePath)) {
@@ -316,7 +339,7 @@ Say '--- facts ---'
 Say ("persona stamp : " + $(if ($persona.stamp) { "$($persona.stamp.ToString('yyyy-MM-dd HH:mm:ss'))  (" + $persona.age + " h old)" } else { 'unknown' }) + "  check=" + $(if ($persona.checkFail -eq 0) { 'GREEN' } elseif ($null -eq $persona.checkFail) { 'n/a' } else { 'FAIL' }) + "  pass=" + $(if ($null -ne $persona.checkTotal) { "$($persona.checkPass)/$($persona.checkTotal)" } else { 'n/a' }))
 Say ("boot manifest : " + $(if ($boot) { "$($boot.count) entries, missing=" + $(if (@($boot.missing).Count -eq 0) { 'none' } else { (@($boot.missing) -join ',') }) } else { 'unavailable' }))
 Say ("skin flags    : " + (($skin | ForEach-Object { "$($_.dir)=$($_.label)" }) -join '  |  '))
-Say ("memes         : " + $(if ($memes) { "$($memes.total) total (official $($memes.official), dafatfish $($memes.dafatfish))" } else { 'n/a' }))
+Say ("meme assets   : " + $(if ($memes) { "$($memes.total) total (official $($memes.official), custom $($memes.custom))" } else { 'n/a' }))
 foreach ($t in $tasks) { Say ("task          : {0}  exists={1}  state={2}  next={3}" -f $t.name, $t.exists, $t.state, $t.next) }
 foreach ($f in $files) { Say ("file          : {0,-22} {1,8} B  {2}  ({3} h old)" -f $f.label, $f.size, $f.mtime.ToString('MM-dd HH:mm'), $f.age) }
 Say ("archives      : " + (($archives | ForEach-Object { "$($_.name)@$($_.mtime.ToString('MM-dd HH:mm'))" }) -join '  |  '))
@@ -380,7 +403,7 @@ function Render-Handoff {
     $txt = $txt -replace '\{\{SKIN_LAYERS\}\}', $skin.Count
     $txt = $txt -replace '\{\{SKIN_BAD\}\}', @($skin | Where-Object { $_.enabled -ne $true }).Count
     $txt = $txt -replace '\{\{MEME_COUNT\}\}', $(if ($memes) { $memes.total } else { '?' })
-    $txt = $txt -replace '\{\{MEME_DAFATFISH\}\}', $(if ($memes) { $memes.dafatfish } else { '?' })
+    $txt = $txt -replace '\{\{MEME_CUSTOM\}\}', $(if ($memes) { $memes.custom } else { '?' })
     $txt = $txt -replace '\{\{WARN_COUNT\}\}', $script:Warn.Count
 
     $taskWarn = @($tasks | Where-Object { -not $_.exists }).Count

@@ -16,7 +16,7 @@
 
 ---
 
-## 1. 未结事项（按优先级）
+## 1. pending items（按优先级）
 
 {{PENDING}}
 
@@ -29,8 +29,8 @@
 | 机器核对时间 | {{CHECKED_AT}} |
 | 人格插件自检 | **{{PERSONA_PASS}}/{{PERSONA_TOTAL}} 项通过**{{#16}}（**有 {{PERSONA_FAIL}} 项 FAIL**）{{/16}} ｜ 规格 {{SPEC_CHARS}} 字符 ｜ 加载脚印 {{PERSONA_STAMP}}（{{PERSONA_AGE}} h 前）{{#64}} **⚠ 脚印偏旧，服务可能很久没重启**{{/64}} |
 | 前端 boot 清单 | {{BOOT_COUNT}} 条 ｜ 缺失插件 {{BOOT_MISSING}} 个 {{BOOT_MISSING_LIST}} |
-| 女仆皮肤开关 | {{SKIN_LAYERS}} 层 ｜ 未启用 {{SKIN_BAD}} 层 |
-| 表情包图库 | {{MEME_COUNT}} 张（大肥鱼 {{MEME_DAFATFISH}} 张） |
+| 女仆skin flags | {{SKIN_LAYERS}} 层 ｜ 未启用 {{SKIN_BAD}} 层 |
+| meme library | {{MEME_COUNT}} 张（custom {{MEME_CUSTOM}} 张） |
 | Node 解释器 | `{{NODE_PATH}}`（{{NODE_VER}}） |
 | 数据源（活档案） | `{{STATE_PATH}}` |
 
@@ -40,9 +40,9 @@
 | --- | --- | --- | --- |
 {{TASK_ROWS}}
 
-{{#2}}> ✓ 三个任务都在位（`DSH_KillEndfield` 待命 / `EndfieldStart_LaunchMaaEnd` 事件触发 / `DSH_HandoffCheck` 巡检）{{/2}}
+{{#2}}> ✓ all monitored scheduled tasks present{{/2}}
 
-**皮肤开关明细**
+**skin flags明细**
 
 | 层 | 文件 | disabled |
 | --- | --- | --- |
@@ -60,7 +60,7 @@
 | --- | --- | --- | --- |
 {{ARCHIVE_ROWS}}
 
-**核对警告**{{#1}}（**本次 {{WARN_COUNT}} 条，见下**）{{/1}}
+**check warnings**{{#1}}（**本次 {{WARN_COUNT}} 条，见下**）{{/1}}
 
 {{#1}}{{WARNINGS}}{{/1}}{{#128}}无（全部核对项一致）{{/128}}
 
@@ -68,13 +68,13 @@
 
 ---
 
-## 3. 已完成的结论（**别重复排查**）
+## 3. 已完成的conclusions（**别重复排查**）
 
 {{DONE}}
 
 ---
 
-## 4. 已挂起（主动叫停 —— **别催、别再提**）
+## 4. 已suspended（主动叫停 —— **别催、别再提**）
 
 {{SUSPENDED}}
 
@@ -100,9 +100,9 @@
 
 | 环节 | 机制 |
 | --- | --- |
-| 数据源唯一 | 未结 / 结论 / 挂起只写在 `handoff-state.md`，本文件由脚本渲染 → 不可能"两处事实打架" |
+| 数据源唯一 | 未结 / conclusions / suspended只写在 `handoff-state.md`，本文件由脚本渲染 → 不可能"两处事实打架" |
 | 事实不靠嘴说 | 插件是否加载、皮肤开没开、任务在不在、指针有没有失效、文件多久没动 —— `handoff-check.ps1` **实测**并打上 `CHECKED_AT` |
-| 漂移会自己叫 | 本文件比任何档案旧 / 核对超 24 h / 指针失效 / 插件掉出 boot 清单 / 皮肤被关 / 任务丢失 → 报 warning，并写进上面的「核对警告」栏 |
+| 漂移会自己叫 | 本文件比任何档案旧 / 核对超 24 h / 指针失效 / 插件掉出 boot 清单 / 皮肤被关 / 任务丢失 → 报 warning，并写进上面的「check warnings」栏 |
 | 定期自检 | 计划任务 `DSH_HandoffCheck` 每 30 分钟只读跑一次（日志 `handoff-check.log`）；**它写不了本文件，只提醒** |
 | 会话纪律 | 开场跑一次 `-Check`；收尾按 **改 state → render → 再 `-Check`** 复核。顺序反了脚本会报"HANDOFF 比 state 旧" |
 | 编码坑 | **脚本正文纯 ASCII**（计划任务用 PS 5.1，会把无 BOM 的 UTF-8 当 ANSI 读 → 中文乱码 → 解析失败、退出码 1、连日志都不写）；**所有中文文案只在本模板里** |
