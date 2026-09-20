@@ -1,0 +1,98 @@
+{
+  "_note": "场景池 —— 每条都带 natural（自然语言，给 Anima/Flux）与 tags（逗号标签，给 Illustrious）两套写法。加条目照着格式抄。",
+  "time": [
+    { "key": "dawn",      "natural": "just before sunrise, the sky still deep blue",              "tags": "dawn, early morning, blue hour" },
+    { "key": "morning",   "natural": "early morning with fresh light coming in",                  "tags": "morning, soft morning light" },
+    { "key": "noon",      "natural": "harsh midday, shadows short and sharp",                     "tags": "midday, bright daylight" },
+    { "key": "afternoon", "natural": "late afternoon, light turning golden",                      "tags": "afternoon, golden hour" },
+    { "key": "dusk",      "natural": "at dusk, the last orange light on the wall",                "tags": "dusk, sunset, orange sky" },
+    { "key": "night",     "natural": "late at night, everything quiet and dark",                  "tags": "night, dark, quiet" },
+    { "key": "rainynight","natural": "on a rainy night, rain streaking down the window",          "tags": "rainy night, rain on window" },
+    { "key": "festival",  "natural": "during a summer festival, lanterns glowing in the dark",    "tags": "summer festival, lanterns, night" }
+  ],
+  "weather": [
+    { "key": "clear",  "natural": "the air is clear",                       "tags": "clear sky" },
+    { "key": "rain",   "natural": "it is raining steadily",                 "tags": "rain, wet" },
+    { "key": "drizzle","natural": "a light drizzle soaks everything",       "tags": "light rain, drizzle" },
+    { "key": "snow",   "natural": "snow is falling without a sound",        "tags": "snow, snowfall, winter" },
+    { "key": "fog",    "natural": "thick fog swallows the distance",        "tags": "fog, misty" },
+    { "key": "wind",   "natural": "a strong wind keeps moving everything",  "tags": "windy, windblown" },
+    { "key": "storm",  "natural": "a storm is rolling overhead",            "tags": "storm, dark clouds" }
+  ],
+  "place": [
+    { "key": "bedroom",   "natural": "a small quiet bedroom",                        "tags": "bedroom, indoors" },
+    { "key": "classroom", "natural": "an empty classroom after school",              "tags": "classroom, empty classroom, school" },
+    { "key": "rooftop",   "natural": "the rooftop of a school building",             "tags": "rooftop, above city" },
+    { "key": "corridor",  "natural": "a long dim corridor",                          "tags": "corridor, hallway, dim" },
+    { "key": "station",   "natural": "a nearly empty train station platform",        "tags": "train station, platform" },
+    { "key": "library",   "natural": "a library between tall shelves of old books",  "tags": "library, bookshelves" },
+    { "key": "cafe",      "natural": "a small cafe by the window",                   "tags": "cafe, indoors, window seat" },
+    { "key": "hospital",  "natural": "a white hospital room that feels too clean",   "tags": "hospital room, clinical, white" },
+    { "key": "alley",     "natural": "a narrow alley between old buildings",         "tags": "alley, narrow street" },
+    { "key": "garden",    "natural": "an overgrown garden nobody tends anymore",     "tags": "overgrown garden, plants" },
+    { "key": "shrine",    "natural": "the steps of a small forgotten shrine",        "tags": "shrine, torii, steps" },
+    { "key": "seaside",   "natural": "a beach with nobody else on it",               "tags": "beach, seaside, ocean" },
+    { "key": "room_warm", "natural": "a worn room lit by a single lamp",             "tags": "dim room, single lamp, indoors" },
+    { "key": "void",      "natural": "a place that is not quite a room, surfaces the wrong colour and slowly moving", "tags": "surreal, abstract background, unsettling" }
+  ],
+  "mood": [
+    { "key": "calm",      "natural": "calm",            "tags": "calm" },
+    { "key": "melancholy","natural": "melancholic",     "tags": "melancholic" },
+    { "key": "tense",     "natural": "quietly tense",   "tags": "tense atmosphere" },
+    { "key": "warm",      "natural": "warm and familiar","tags": "warm atmosphere" },
+    { "key": "lonely",    "natural": "lonely",          "tags": "lonely" },
+    { "key": "dreamlike", "natural": "dreamlike",       "tags": "dreamlike, ethereal" },
+    { "key": "uneasy",    "natural": "gently wrong, as if something is off", "tags": "unsettling, eerie" },
+    { "key": "gentle",    "natural": "gentle and hushed","tags": "gentle, soft atmosphere" }
+  ],
+  "light": [
+    { "key": "window",   "natural": "light falls in from a window on one side",  "tags": "window light, side lighting" },
+    { "key": "backlit",  "natural": "she is backlit so her edges glow",          "tags": "backlighting, rim light" },
+    { "key": "lamp",     "natural": "a single warm lamp lights her face",        "tags": "lamp light, warm lighting" },
+    { "key": "candle",   "natural": "candlelight flickers over everything",      "tags": "candlelight, flickering" },
+    { "key": "neon",     "natural": "neon signs outside colour the whole room",  "tags": "neon lights, colored lighting" },
+    { "key": "overcast", "natural": "flat overcast daylight, no shadows",        "tags": "overcast, soft flat light" },
+    { "key": "moon",     "natural": "cold moonlight is the only light",          "tags": "moonlight, cold light" },
+    { "key": "spot",     "natural": "a hard pool of light with darkness around it","tags": "spotlight, dramatic lighting" }
+  ],
+  "camera": [
+    { "key": "closeup",   "natural": "seen in a close-up of her face and shoulders", "tags": "close-up, portrait, upper body" },
+    { "key": "bust",      "natural": "framed from the waist up",                     "tags": "upper body, waist-up" },
+    { "key": "full",      "natural": "shown full-length",                            "tags": "full body" },
+    { "key": "wide",      "natural": "small in a wide shot that shows the whole place","tags": "wide shot, scenery, from distance" },
+    { "key": "lowangle",  "natural": "seen from a low angle looking up at her",      "tags": "from below, low angle" },
+    { "key": "highangle", "natural": "seen from above, looking down",                "tags": "from above, high angle" },
+    { "key": "over_shoulder","natural": "framed from behind her shoulder",           "tags": "from behind, over shoulder" },
+    { "key": "dutch",     "natural": "with the frame tilted off balance",            "tags": "dutch angle" },
+    { "key": "mirror",    "natural": "reflected in a mirror",                        "tags": "mirror, reflection" }
+  ],
+  "action": [
+    { "key": "standing",   "natural": "standing still with her hands loosely at her sides", "tags": "standing" },
+    { "key": "sitting_floor","natural": "sitting on the floor with her legs folded to one side", "tags": "sitting on floor, wariza" },
+    { "key": "sitting_chair","natural": "sitting on a chair, leaning slightly forward", "tags": "sitting on chair, leaning forward" },
+    { "key": "lying",      "natural": "lying on her side, hair spread out around her", "tags": "lying on side, on bed" },
+    { "key": "reading",    "natural": "reading an old book, one finger holding the page", "tags": "reading, holding book" },
+    { "key": "holding_cup","natural": "holding a warm cup in both hands",             "tags": "holding cup, both hands" },
+    { "key": "looking_out","natural": "looking out through the window, not at the viewer", "tags": "looking out window" },
+    { "key": "walking",    "natural": "walking slowly, mid-step",                     "tags": "walking, mid-step" },
+    { "key": "reaching",   "natural": "reaching one hand out toward the viewer",      "tags": "reaching out, hand toward viewer" },
+    { "key": "hugging_knees","natural": "sitting with her knees pulled up to her chest", "tags": "hugging own knees, sitting" },
+    { "key": "caught",     "natural": "caught mid-motion, turning to look back",      "tags": "turning around, looking back" },
+    { "key": "undressing_wordless","natural": "quietly folding a white dress over a chair", "tags": "folding clothes, indoors" },
+    { "key": "peeking",    "natural": "peeking out from behind a door frame",         "tags": "peeking, behind door" },
+    { "key": "asleep",     "natural": "curled up asleep",                             "tags": "sleeping, curled up" }
+  ],
+  "expression": [
+    { "key": "soft",     "natural": "soft and unreadable",              "tags": "soft expression" },
+    { "key": "smile",    "natural": "a very small smile",               "tags": "light smile" },
+    { "key": "blank",    "natural": "blank and still, looking straight through", "tags": "blank stare, empty eyes" },
+    { "key": "curious",  "natural": "head tilted, curious",             "tags": "head tilt, curious" },
+    { "key": "shy",      "natural": "shy, glancing away",               "tags": "shy, looking away, blush" },
+    { "key": "sad",      "natural": "quietly sad",                      "tags": "sad, downcast eyes" },
+    { "key": "surprised","natural": "eyes slightly wide",               "tags": "surprised, wide eyes" },
+    { "key": "content",  "natural": "content and half-closed eyes",     "tags": "content, half-closed eyes" },
+    { "key": "smirk",    "natural": "a knowing little smirk",           "tags": "smirk, confident" },
+    { "key": "crying",   "natural": "eyes wet but face composed",       "tags": "teary eyes, crying" },
+    { "key": "intense",  "natural": "unnervingly focused on the viewer","tags": "staring at viewer, intense" }
+  ]
+}
