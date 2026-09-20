@@ -77,7 +77,9 @@ function Get-SkinFact {
     $rows = @()
     foreach ($f in @("${DshRoot}\cordis.patch.yml", "${DshRoot}\profiles\web\cordis.patch.yml")) {
         $txt = Read-TextSafe $f
-        if ($null -eq $txt) { NewWarn "skin patch missing: $f"; continue }
+        # A missing patch file on a machine that does not use skins is normal:
+        # skip silently instead of warning (the DSH default has no patch files).
+        if ($null -eq $txt) { continue }
         $lines = $txt -split "`r?`n"
         $flag = $null; $label = 'no-flag'
         for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -127,7 +129,10 @@ function Get-TaskFact {
 
 function Get-MemeFact {
     $dir = if ($script:MemeGlob) { Join-Path $DshRoot $script:MemeGlob } else { '' }
-    if (-not (Test-Path -LiteralPath $dir)) { NewWarn "meme dir missing: $dir"; return $null }
+    # Not configured (or not present) is a silent "n/a", not a warning: the meme
+    # library is a deployment extra, not part of the handoff contract.
+    if ([string]::IsNullOrEmpty($dir)) { return $null }
+    if (-not (Test-Path -LiteralPath $dir)) { return $null }
     $files = Get-ChildItem -LiteralPath $dir -File -Recurse -ErrorAction SilentlyContinue
     return [ordered]@{
         total     = $files.Count
