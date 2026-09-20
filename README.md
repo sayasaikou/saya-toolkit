@@ -1,67 +1,47 @@
-# saya-toolkit · AI 助手折腾出来的工具与方法论
+# saya-toolkit
 
-> 这里放的是**真在用的东西**，不是玩具：一套给 AI 助手（DSH）用的工程实践 —— 跨会话交接、
-> 计划任务不掉窗口、笔记本双烤监控、Blender 无头出图、ComfyUI 出图流水线，以及几次**真实故障的根因分析**。
-> 全部是**自己踩过坑之后写下的结论**，路径与个人信息已清理。
+面向 Windows 环境的 AI 助手工程实践工具集。本仓库收录若干**在真实生产环境中长期使用**的组件，涵盖跨会话状态交接、Windows 自动化约束的绕行方案、硬件压力测试与监控、以及本地生成式模型的批量出图流水线。
 
-**平台**：Windows 11 + PowerShell 7（多数脚本 5.1 也能跑）｜**License**：MIT（见各文件头）
+所有内容均来自实际运维与开发过程，附带可复核的实测数据、失败方案记录与回滚方案。仓库不附带任何模型权重或第三方素材。
 
----
+## 目录结构
 
-## 目录
-
-| 目录 | 内容 | 一句话价值 |
+| 目录 | 内容 | 解决的问题 |
 | --- | --- | --- |
-| [`dsh-handoff/`](dsh-handoff/) | 跨会话交接三件套（state + template + check.ps1） | **上下文会丢，文件不会** —— 助手每次开场只读一个文件就能接上上次的活 |
-| [`win-agent-tools/`](win-agent-tools/) | `run-hidden.exe` 源码、HTML→PNG 无头截图 | 计划任务**不再闪黑框抢焦点**；给 AI 一双「看网页」的眼睛 |
-| [`thermal-monitor/`](thermal-monitor/) | `ab-monitor`（读 Afterburner 共享内存）+ 双烤一键监测 | 不装任何驱动就读到 91 项传感器；双烤自动收尾、带安全闸 |
-| [`blender-headless/`](blender-headless/) | Blender 无头出图/诊断脚本集 | 批量渲多视角、材质排错，不用手点 GUI |
-| [`comfy-pipeline/`](comfy-pipeline/) | `comfygen.py` / `promptbox.py` / 场景池 | 本地出图：多底模统一入口、按角色随机场景（不再白底站姿） |
-| [`incident-notes/`](incident-notes/) | 故障根因记录 | 白屏、闪窗抢焦点、蓝屏排查 —— **症状 → 根因 → 修法**，附判据 |
-| [`docs/`](docs/) | 盘点与清洗说明 | 哪些能公开、哪些必须脱敏、怎么自己复刻 |
+| [`dsh-handoff/`](dsh-handoff/) | 跨会话交接机制（状态文件 + 模板 + 核对脚本） | 助手会话之间的上下文不连续与人工交接漂移 |
+| [`win-agent-tools/`](win-agent-tools/) | 无窗口进程启动器、HTML 渲染截图 | 计划任务创建控制台窗口并抢占前台焦点；自动化脚本缺少网页渲染能力 |
+| [`thermal-monitor/`](thermal-monitor/) | Afterburner 共享内存读取、双烤一键监控 | 无法在不安装驱动的前提下批量获取传感器数据；压力测试缺乏自动化收尾与安全边界 |
+| [`blender-headless/`](blender-headless/) | Blender 无头渲染脚本集说明 | 批量多视角渲染与材质问题定位依赖手工操作 |
+| [`comfy-pipeline/`](comfy-pipeline/) | ComfyUI 批量出图与提示词生成 | 多底模调用方式不统一；生成结果趋于同质化（固定站姿、背景单一） |
+| [`incident-notes/`](incident-notes/) | 故障复盘（根因分析） | 同类故障的复现与定位成本 |
+| [`docs/`](docs/) | 收录范围与脱敏规则 | 说明哪些内容适合公开、哪些必须保留在私有环境 |
 
----
+## 组件说明
 
-## 三个最值得抄的东西
+### dsh-handoff
 
-### 1. 跨会话交接（`dsh-handoff/`）
-AI 助手会话一换就失忆，靠手写交接必然漂移。这套机制的做法是：
-**单一数据源 + 机器渲染 + 每次实测**。助手只维护一份 `handoff-state.md`，
-脚本负责核对（进程、计划任务、文件时间戳、指针存活）并渲染出 `HANDOFF.md`，
-输出带 `CHECKED_AT` 时间戳 —— **「核对过了」有凭据，不靠自我总结**。
+采用「单一数据源 + 机器渲染 + 每次实测」的方式维护跨会话状态。维护者只更新一份状态文件，由脚本负责核对环境实际状态（进程、计划任务、文件时间戳、引用路径存活情况）并渲染成交接文档，输出带有核对时间戳，使「已核对」具备可追溯凭据。
 
-### 2. `run-hidden.exe`（`win-agent-tools/`）
-Windows 计划任务想不弹黑框，`-WindowStyle Hidden` **是没用的**（它是"先建控制台再隐藏"，照样闪一下、照样抢焦点）。
-真正的解法是**编译成 GUI 子系统**：`csc /target:winexe`。
-源码 20 行 P/Invoke，替代掉整套 VBScript 方案。
+### win-agent-tools
 
-### 3. 双烤监控（`thermal-monitor/`）
-用 Afterburner 的共享内存（MAHM）拿传感器数据 —— **不装驱动、不读 WMI、91 项指标全都能读**。
-配一个一键双烤脚本：实时显示 + 到点自动杀烤机 + 独立安全闸（防止跑飞了把机器烤干）。
-本机实测结论示例：瓶颈在厂商功耗墙（GPU 172W / CPU 65W），散热与电源都有余量。
+- `run-hidden.cs`：将启动器编译为 GUI 子系统可执行文件，由它调用目标命令。相比 `-WindowStyle Hidden` 与 VBScript `WScript.Shell.Run` 方案，可从根本上避免控制台窗口的创建。
+- `html-shot.ps1`：调用系统自带浏览器内核渲染 HTML 并输出 PNG，输出具备确定性（相同输入连续两次渲染的 SHA256 一致），可用于交付前的视觉验收。
 
----
+### thermal-monitor
 
-## 复刻须知（别踩同样的坑）
+通过 MSI Afterburner 暴露的共享内存（MAHM）读取传感器数据，无需安装驱动或依赖 SDK，可获取 91 项指标（温度、功耗、频率、占用率及功耗墙状态）。配套脚本提供双烤流程的自动采样、收尾与安全中断。
 
-1. **路径全靠环境变量**：脚本里的 `$env:DSH_HOME` / `$env:DSH_WORKSPACE` 等请按自己的目录改；
-2. **计划任务相关脚本必须纯 ASCII**：计划任务用 PowerShell 5.1 跑，无 BOM 的 UTF-8 会被当 ANSI 读 → 中文乱码 → 解析失败、连日志都不写；
-3. **README 里写的"实测值"都是特定机器上的**：型号不同，结论会不同（我会标出机器型号）；
-4. **没有 Windows 就没法跑这些**（`run-hidden`、任务计划、MAHM 都是 Windows 专属）。
+### comfy-pipeline
 
----
+为 ComfyUI 提供统一的命令行入口（多底模族、批量生成、结构化输出），并提供基于角色档案与场景池的提示词随机生成，用于规避模板化输出。
 
-## 状态
+## 复现须知
 
-| 项 | 状态 |
-| --- | --- |
-| 目录骨架 | ✅ 已建 |
-| 已脱敏可公开 | ✅ `dsh-handoff/`、`win-agent-tools/`、`thermal-monitor/`、`comfy-pipeline/`、`blender-headless/`（首批 13 个文件） |
-| 待脱敏后加入 | ⏳ 云备份工具链、故障复盘全文、词库/人格配方、插件生态调研 —— 见 [`docs/发布盘点.md`](docs/发布盘点.md) |
-| 已知局限 | ⚠️ 部分脚本仍含本机专属默认值（如 `$env:DSH_AI` 指向本地 ComfyUI 根目录），跑不起来就是路径没改 |
+1. 脚本中的路径通过环境变量（`$env:DSH_HOME`、`$env:DSH_WORKSPACE`、`$env:DSH_AI` 等）配置，首次使用需按实际目录调整。
+2. 面向计划任务的 PowerShell 脚本应为纯 ASCII。Windows PowerShell 5.1 会将无 BOM 的 UTF-8 文件按 ANSI 解析，包含中文注释时会导致解析失败。
+3. 文档中的实测数据均来自特定测试机，不同硬件配置下结论可能不同，相关机型信息已在各文档中说明。
+4. 本仓库组件依赖 Windows 平台（计划任务、MAHM 共享内存、PE 子系统行为均为平台特性）。
 
----
+## 许可
 
-## License
-
-本仓内容 MIT。第三方资产（模型、素材、插件）**各自遵循其原始许可**，本仓不附带任何模型权重。
+本仓库内容采用 MIT 许可。第三方组件（模型、素材、插件）遵循其各自的原始许可，本仓库不附带任何模型权重。
