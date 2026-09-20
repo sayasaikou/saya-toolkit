@@ -16,10 +16,10 @@ param(
 #
 #   $PersonaPlugin  : OPTIONAL, DSH-specific. Name of a plugin directory under
 #                     "<DshRoot>\profiles\web\plugins\" whose own check script
-#                     self-verifies an injected prompt/persona (the author's is
-#                     'dafatfish', which injects a character spec on session
-#                     start). If the directory is absent the check is reported
-#                     as "n/a" - never a warning. Set to '' to disable.
+#                     self-verifies an injected prompt/persona (for example, a
+#                     plugin that injects a character spec on session start).
+#                     If the directory is absent the check is reported as
+#                     "n/a" - never a warning. Set to '' to disable.
 # ---------------------------------------------------------------------------
 $script:MonitoredTasks = @()  # e.g. @('MyBackupTask','MyWatchdog')
 $script:PersonaPlugin  = ''  # e.g. 'my-persona-plugin'

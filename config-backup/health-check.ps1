@@ -69,8 +69,8 @@ if ($StampPlugin) { $StampF = Join-Path $Dsh ('profiles\web\plugins\' + $StampPl
 $issues = @()
 
 # ---- 1) port
-$port = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-$svcPid = if ($port) { $port.OwningProcess } else { $null }
+$listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+$svcPid = if ($listener) { $listener.OwningProcess } else { $null }
 $portOk = [bool]$svcPid
 if (-not $portOk) { $issues += ($Port.ToString() + ' has no listener (service is not up)') }
 

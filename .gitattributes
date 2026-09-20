@@ -1,0 +1,16 @@
+# Line endings.
+#
+# This repository ships PowerShell tooling that is meant to be byte-exact:
+# BOM-less UTF-8 with LF endings (Windows PowerShell 5.1 parses a BOM-less UTF-8 file as
+# ANSI, and the scheduled-task scripts must stay pure ASCII).
+#
+# With core.autocrlf=true on a Windows checkout, git would hand back CRLF and the files
+# would no longer match what the scripts document, so pin the endings here.
+
+* text=auto
+*.ps1  text eol=lf
+*.cs   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.txt  text eol=lf

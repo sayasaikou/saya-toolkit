@@ -1,22 +1,28 @@
 #!/usr/bin/env python
 """
-comfygen.py —— 本地出图工具（大肥鱼自用）
+comfygen.py -- batch image generation front-end for a local ComfyUI instance.
 
-用法举例：
-  python comfygen.py --family flux        --prompt "a blue whale girl eating rice" --batch 4 --out E:/dsh-ai/out/flux1
-  python comfygen.py --family illustrious --prompt "1girl, blue hair, maid outfit" --steps 28 --cfg 6 --batch 8 --out E:/dsh-ai/out/il1
-  python comfygen.py --family anima       --prompt "一只蓝色鲸鱼娘在机房吃白饭" --steps 30 --batch 4 --out E:/dsh-ai/out/anima1
+Examples:
+  python comfygen.py --family flux        --prompt "a blue whale girl eating rice" --batch 4 --out out/flux1
+  python comfygen.py --family illustrious --prompt "1girl, blue hair, maid outfit" --steps 28 --cfg 6 --batch 8 --out out/il1
+  python comfygen.py --family anima       --prompt "a blue whale girl in a server room" --steps 30 --batch 4 --out out/anima1
 
-设计说明：
-- 直连 ComfyUI 的 HTTP API（默认 127.0.0.1:8188），不依赖任何外部库
-- 一轮可多张（batch），全部落到 --out 目录，文件名单调递增
-- 输出 TSV 行：秒/张、图片路径，方便上层脚本（视觉链筛图）直接嗂
+Design notes:
+  - Talks to the ComfyUI HTTP API directly (default 127.0.0.1:8188); no third-party
+    dependencies beyond the standard library.
+  - One invocation can produce several images (--batch); all files land in the --out
+    folder with monotonically increasing names.
+  - Prints one TSV row per image: seconds per image and the image path, which upstream
+    tooling (e.g. an automated visual filter) can consume directly.
 """
 import argparse, json, os, shutil, sys, time, urllib.request, urllib.error
 
 HOST = os.environ.get("COMFY_HOST", "http://127.0.0.1:8188")
 
-# ---- 三张底模的接线规格（均来自官方模板/实测，非猜） ----
+# Root of the ComfyUI output folder. Override with the COMFY_OUT environment variable.
+COMFY_OUT = os.environ.get("COMFY_OUT", os.path.join(os.path.expanduser("~"), "ComfyUI", "output"))
+
+# ---- Model wiring for the three families (taken from official templates / measured, not guessed) ----
 FLUX_UNET   = "flux1-schnell-fp8.safetensors"
 FLUX_T5     = "t5xxl_fp8_e4m3fn.safetensors"
 FLUX_CLIPL  = "clip_l.safetensors"
@@ -62,8 +68,9 @@ def build_illustrious(a, seed):
     }
 
 def build_anima(a, seed):
-    # 官方模板 image_anima_base_v1：UNETLoader + CLIPLoader(qwen 编码器, type=stable_diffusion)
-    #   + VAELoader(qwen_image_vae) + 常规 KSampler。turbo 用低步数低 cfg。
+    # Official template image_anima_base_v1: UNETLoader + CLIPLoader (qwen text encoder,
+    #   type=stable_diffusion) + VAELoader (qwen_image_vae) + a plain KSampler.
+    #   The turbo checkpoint uses fewer steps and a lower cfg.
     unet = a.unet or (ANIMA_TURBO if a.turbo else ANIMA_UNET)
     return {
         "1": {"class_type":"UNETLoader","inputs":{"unet_name":unet,"weight_dtype":"default"}},
@@ -109,11 +116,11 @@ def main():
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--batch", type=int, default=1)
     ap.add_argument("--prefix", default=None)
-    ap.add_argument("--out", default=None, help="把图拷到这个目录（默认留在 ComfyUI/output）")
-    ap.add_argument("--turbo", action="store_true", help="anima：用 turbo 底模")
-    ap.add_argument("--unet", default=None, help="覆盖底模文件名")
+    ap.add_argument("--out", default=None, help="copy the images into this folder (default: leave them in the ComfyUI output folder)")
+    ap.add_argument("--turbo", action="store_true", help="anima: use the turbo checkpoint")
+    ap.add_argument("--unet", default=None, help="override the diffusion model filename")
     ap.add_argument("--ckpt", default=None)
-    ap.add_argument("--te", default=None, help="覆盖文本编码器文件名")
+    ap.add_argument("--te", default=None, help="override the text encoder filename")
     ap.add_argument("--vae", default=None)
     a = ap.parse_args()
 
@@ -137,7 +144,7 @@ def main():
         try:
             h = get("/history/"+pid)
         except Exception as e:
-            print("# 服务无响应: %s" % e, file=sys.stderr); return 3
+            print("# service did not respond: %s" % e, file=sys.stderr); return 3
         if pid in h:
             st = h[pid].get("status", {})
             if st.get("completed"):
@@ -148,7 +155,7 @@ def main():
                         print("ERROR node=%s type=%s msg=%s" % (m[1].get("node_id"), m[1].get("node_type"), m[1].get("exception_message")), file=sys.stderr)
                 return 3
     if not out:
-        print("# 超时未完成", file=sys.stderr); return 3
+        print("# timed out before completion", file=sys.stderr); return 3
 
     dt = time.time() - t0
     imgs = []
@@ -158,7 +165,7 @@ def main():
     if a.out:
         os.makedirs(a.out, exist_ok=True)
     for im in imgs:
-        src = os.path.join(r"$env:DSH_AI\ComfyUI-master\output", im.get("subfolder", ""), im["filename"])
+        src = os.path.join(COMFY_OUT, im.get("subfolder", ""), im["filename"])
         dst = src
         if a.out:
             dst = os.path.join(a.out, im["filename"])
@@ -167,4 +174,3 @@ def main():
         print("%.1f\t%s\t%.2fMB" % (dt/len(imgs), dst, size_mb))
 
 main()
-
