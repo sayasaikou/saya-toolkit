@@ -15,15 +15,22 @@
 # Exit codes: 0 = nothing to update, 3 = updates available, 2 = check could not run.
 #
 # WHAT IT CHECKS
-#   1. the host application itself (npm package), against the registry 'latest' tag
+#   1. the host application itself, against the registry 'latest' tag
 #   2. every registry-sourced dependency of the profile's package.json
 #      (link: / file: / portal: / github: / git+ / http(s): specs are skipped on purpose --
 #       a linked working copy is not something a version check can judge)
 #   3. global npm CLI tools
 #   4. a set of winget package ids
 #
+# THE APPLICATION VERSION HAS TWO SHAPES (this is why the code looks branchy)
+#   * A CLI-installed host lives in the npm global root and is versioned by its
+#     package.json -- check 1 reads that.
+#   * A desktop/Electron host ships its own bundled runtime and updates itself through its
+#     own updater. The global npm copy is then orphaned, and reporting ITS version would be
+#     a permanent false "update available" against a package nobody runs. When a runtime
+#     manifest is present, the version is read from there instead.
+#
 # PREREQUISITES
-#   * Node.js is installed via npm (default global root %APPDATA%\npm).
 #   * winget is present if you want section 4; a missing winget is reported, not fatal.
 #   * Pre-release versions are never auto-installed. Even when a registry's 'latest' tag
 #     points at an alpha/beta/rc, that is a report line, not an action.
@@ -41,6 +48,9 @@ param(
     # $env:DSH_HOME wins when it is set; otherwise the usual per-user location is used.
   [string]$DshHome = $(if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }),
 
+    # Profile folder under <DshHome>\profiles. Empty = auto-detect (desktop, else web).
+    [string]$ProfileName = '',
+
     # npm registry used for version lookups. A mirror can be passed instead, e.g.
     # https://registry.npmmirror.com
     [string]$Registry = 'https://registry.npmjs.org',
@@ -55,12 +65,50 @@ param(
     [string[]]$WingetIds = @(
         'BurntSushi.ripgrep.MSVC', 'sharkdp.fd', 'jqlang.jq', '7zip.7zip',
         'astral-sh.uv', 'JohnMacFarlane.Pandoc', 'GitHub.cli', 'ImageMagick.ImageMagick'
-    )
+    ),
+
+    # [optional] Runtime manifest of a desktop/Electron host. The first existing file wins
+    # and its version field is used for check 1 instead of the npm global copy, because a
+    # desktop host ships its own runtime and leaves the global npm copy orphaned.
+    # When empty, the common install locations below are probed. If none exists, the npm
+    # global copy is used, which is correct for a CLI-only installation.
+    [string[]]$CoreRuntimeManifest = @(
+        (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\resources\runtime\primary-runtime\runtime.json'),
+        (Join-Path $env:ProgramFiles 'DeepSeek Harness\resources\runtime\primary-runtime\runtime.json')
+    ),
+
+    # Extra manifest paths supplied by the caller (prepended to the list above).
+    [string[]]$ExtraRuntimeManifest = @(),
+
+    # JSON property that holds the version inside the runtime manifest.
+    [string]$CoreRuntimeVersionField = 'desktopVersion'
 )
 
 $ErrorActionPreference = 'Continue'
-$Dsh       = $DshHome
-$ProfilePj = Join-Path $Dsh 'profiles\web\package.json'
+$Dsh = $DshHome
+
+# ---- which profile layout is present
+# TECH NOTE: probe for the package.json rather than for the folder. An empty or partially
+# removed profile directory still exists, and picking it would report "no plugins found"
+# while the real profile sits right next to it -- a silent false negative.
+#
+# TECH NOTE: the parameter is named $Root, NOT $Home. $Home is a read-only automatic
+# variable in PowerShell, and the failure mode is nasty: binding a parameter called $Home
+# throws "cannot overwrite variable Home" and the function returns nothing, so the script
+# keeps running with an empty profile name and reports nonsense instead of failing.
+function Resolve-ProfileName([string]$Root) {
+    $candidates = @()
+    if ($ProfileName) { $candidates += $ProfileName }
+    $candidates += @('desktop', 'web')
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path (Join-Path $Root ('profiles\' + $c + '\package.json')))) { return $c }
+    }
+    return ''
+}
+
+$Profile = Resolve-ProfileName $Dsh
+$ProfilePj = ''
+if ($Profile) { $ProfilePj = Join-Path $Dsh ('profiles\' + $Profile + '\package.json') }
 $CoreDir   = Join-Path $GlobalNodeModules '@deepseek-ai\dsh'
 $Log       = Join-Path $Dsh 'update-check.log'
 
@@ -94,7 +142,21 @@ $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
 Emit ('=== update check ' + $stamp + ' ===')
 
 # --- 1) core application ------------------------------------------------------
-$coreInstalled = Get-InstalledVersion $CoreDir
+# The runtime manifest of a desktop host wins over the npm global copy: the desktop host
+# bundles its own runtime and updates itself, so the global copy is orphaned and comparing
+# its version would raise a permanent false alarm.
+$coreInstalled = $null
+$coreSource = 'npm global'
+foreach ($mf in (@($ExtraRuntimeManifest) + @($CoreRuntimeManifest))) {
+    if ($mf -and (Test-Path $mf)) {
+        try {
+            $coreInstalled = (Get-Content $mf -Raw -ErrorAction Stop | ConvertFrom-Json).$CoreRuntimeVersionField
+            if ($coreInstalled) { $coreSource = $mf; break }
+        } catch { }
+    }
+}
+if (-not $coreInstalled) { $coreInstalled = Get-InstalledVersion $CoreDir; $coreSource = 'npm global' }
+
 $coreLatest = Get-LatestVersion '@deepseek-ai/dsh'
 if ($coreInstalled -and $coreLatest) {
     if (Compare-Ver $coreInstalled $coreLatest) {
@@ -109,26 +171,31 @@ if ($coreInstalled -and $coreLatest) {
 
 # --- 2) profile dependencies --------------------------------------------------
 $plugins = @()
-try {
-    $pj = Get-Content $ProfilePj -Raw -ErrorAction Stop | ConvertFrom-Json
-    foreach ($prop in $pj.dependencies.PSObject.Properties) {
-        $spec = [string]$prop.Value
-        if ($spec -match '^(link|file|portal):' -or $spec -match '^(github|git\+|https?):') { continue }
-        $plugins += $prop.Name
+if (-not $Profile) {
+    Emit ('plugins       : no profile found under ' + (Join-Path $Dsh 'profiles'))
+} else {
+    try {
+        $pj = Get-Content $ProfilePj -Raw -ErrorAction Stop | ConvertFrom-Json
+        foreach ($prop in $pj.dependencies.PSObject.Properties) {
+            $spec = [string]$prop.Value
+            if ($spec -match '^(link|file|portal):' -or $spec -match '^(github|git\+|https?):') { continue }
+            $plugins += $prop.Name
+        }
+    } catch {
+        Emit ('plugins       : cannot read ' + $ProfilePj)
     }
-} catch {
-    Emit ('plugins       : cannot read ' + $ProfilePj)
 }
 $pOutdated = @()
 foreach ($p in $plugins) {
-    $instDir = Join-Path $Dsh ('profiles\web\node_modules\' + $p)
+    $instDir = Join-Path $Dsh ('profiles\' + $Profile + '\node_modules\' + $p)
     $inst = Get-InstalledVersion $instDir
     if (-not $inst) { continue }
     $latest = Get-LatestVersion $p
     if ($latest -and (Compare-Ver $inst $latest)) { $pOutdated += ($p + ' ' + $inst + ' -> ' + $latest) }
 }
-if ($plugins.Count -eq 0) { Emit 'plugins       : none (registry-local) found' }
-elseif ($pOutdated.Count -eq 0) { Emit ('plugins       : ' + $plugins.Count + ' checked, all up to date') }
+if (-not $Profile) { }
+elseif ($plugins.Count -eq 0) { Emit ('plugins       : none (registry-local) found in profile ' + $Profile) }
+elseif ($pOutdated.Count -eq 0) { Emit ('plugins       : ' + $plugins.Count + ' checked in profile ' + $Profile + ', all up to date') }
 else {
     Emit ('plugins       : ' + $pOutdated.Count + ' update(s) available')
     foreach ($o in $pOutdated) { Emit ('   ' + $o); $updates += ('plugin ' + $o) }

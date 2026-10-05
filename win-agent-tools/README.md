@@ -46,6 +46,18 @@ pwsh -NoProfile -File .\html-shot.ps1 -Html ".\report.html" -Out ".\report.png" 
 
 以下脚本均为可选工具，参数均带默认值，可按部署环境覆盖。
 
+> ### ⚠️ 关于 2.2 / 2.3 / 2.4 三节：它们绑定的是**旧架构**
+>
+> 这三节（`restart-verify.ps1` / `service-watchdog.ps1` / `watchdog-rescue-once.ps1`）围绕一种**「独立启动器进程 + 外部 Web 服务 + 独立日志文件」**的部署形态写成：看门狗定时探测端口，端口没了就重新拉起启动器；重启脚本靠读**启动器日志**里的令牌去抓页面验证。
+>
+> 该形态后来被替换为**单进程桌面客户端**（Electron 外壳，服务跑在宿主进程内）。新形态下：
+>
+> - **没有可拉起的独立启动器** —— 客户端本身由系统/用户启动，看门狗无事可做；
+> - **服务令牌不再落到磁盘** —— 它保留在应用内部，外部脚本读不到，靠日志取令牌的验证路径直接失效；
+> - **客户端自带进程存活机制** —— 外部保活反而会与它自己打架。
+>
+> 因此这三份脚本**保留原样仅作参考**（其中的`任务自注销`、`延迟 + 独立进程`、`心跳断档作为证据`这三个模式仍然可迁移到别的场景）。若你的部署也是单进程形态，请先读 `update-check.ps1` 顶部关于「两种形态」的说明，再决定要不要用它们。
+
 ### 2.1 fix-flash-tasks.ps1
 
 消除计划任务的控制台窗口闪烁。将该任务的动作统一替换为无窗口启动器（`run-hidden`），并可选地对高频任务重设执行间隔。
@@ -104,9 +116,19 @@ pwsh -NoProfile -File .\html-shot.ps1 -Html ".\report.html" -Out ".\report.png" 
 | `-Quiet` | 仅输出一行结论 |
 | `-Registry` | 版本查询所用 npm 源，默认官方源；可传镜像地址 |
 | `-TimeoutSec` | 单次查询超时 |
+| `-DshHome` / `-ProfileName` | 主目录与 profile 名；profile 为空时自动探测（`desktop` 优先，其次 `web`） |
+| `-CoreRuntimeManifest` / `-ExtraRuntimeManifest` | 桌面客户端的 runtime 清单路径；命中则按它读本体版本（`-ExtraRuntimeManifest` 优先于默认探测） |
+| `-CoreRuntimeVersionField` | 从 runtime 清单里取版本号的字段名 |
 | `-NpmTools` / `-WingetIds` | 需要检查的 npm 包与 winget 组件清单 |
 
 退出码：`0` 表示无更新；`3` 表示存在可用更新；`2` 表示查询失败（网络或镜像问题）。
+
+**关于「本体版本从哪读」**：宿主要应用有两种形态，脚本会分别处理 ——
+
+- **CLI 安装形态**：本体在 npm 全局目录里，直接读它的 `package.json`；
+- **桌面客户端形态**：客户端自带 runtime 并经自己的更新器升级，npm 全局那份会被孤立。此时若仍比对孤立副本的版本，会**永久报出一个无人使用的「有更新可用」**（实测踩过：全局 CLI 停在旧版本，报出的更新指向一个根本没在跑的包）。所以**只要 runtime 清单存在，就以它为准**。
+
+`-NpmTools` / `-WingetIds` 传空数组时，PowerShell 需要显式写法（例如 `-WingetIds @()` 在某些版本下会报「缺少自变量」，改用 `-WingetIds ([string[]]@())`）——这是 PowerShell 数组参数绑定的已知行为，不是脚本缺陷。
 
 ## 三、通用注意事项
 
