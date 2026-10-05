@@ -78,7 +78,22 @@ $DenyFiles = @(
 # ---- red line 2: relative paths matching any of these regexes are never mirrored
 # TECH NOTE: '\node_modules\' needs doubled backslashes because this is a regex, not a
 # wildcard. A single backslash would escape the next character and silently match nothing.
-$DenyPatterns = @('\.bak-', '\.bak$', '\.log$', '__pycache__', '\.pyc$', '\\node_modules\\', '^_probe')
+#
+# The credential-name guard exists because a name-based blocklist only protects the files
+# you thought of in advance. Anything a human drops in a folder later -- an exported key,
+# a scratch file called my-apikey.txt -- is caught by the pattern instead of by memory.
+# Guarding by filename is a heuristic, not a proof: the real protection is that this repo
+# is private and that credentials should never be written into the home folder at all.
+#
+# TECH NOTE: the CJK word for "key" is included by building it from code points rather
+# than typing it, so this file stays pure ASCII (a scheduler launches it under PowerShell
+# 5.1, which reads a BOM-less UTF-8 file as ANSI and turns literal CJK into mojibake).
+$CjkKey = [string]([char]0x5BC6) + [string]([char]0x94A5)
+$DenyPatterns = @(
+  '\.bak-', '\.bak$', '\.log$', '__pycache__', '\.pyc$', '\\node_modules\\', '^_probe',
+  '(?i)api[_-]?\s?key', '(?i)secret', '(?i)token', '(?i)password', '(?i)passwd',
+  '(?i)credential', $CjkKey
+)
 
 function Test-Denied([string]$rel) {
   foreach ($p in $DenyPatterns) { if ($rel -match $p) { return $true } }
@@ -142,8 +157,20 @@ try {
   $msg = if ($Note) { 'sync: ' + $Note + ' @ ' + $stamp } else { 'sync @ ' + $stamp }
   $status = & git status --porcelain
   if ($status) {
-    & git commit -m $msg 2>&1 | Select-Object -First 3 | ForEach-Object { '  ' + $_ }
-    Write-Host ('committed: ' + $msg) -ForegroundColor Green
+    # TECH NOTE: the commit message goes through a UTF-8 FILE, not through -m.
+    # A non-ASCII -Note passed as an argument is re-encoded by the MSYS layer on Windows
+    # according to the ANSI code page, so a Chinese note is stored in the repository as
+    # mojibake (measured: every commit for two weeks was unreadable). `git commit -F`
+    # with an explicitly UTF-8-encoded file preserves the text byte for byte.
+    # Do not "simplify" this back to -m.
+    $msgFile = Join-Path ([IO.Path]::GetTempPath()) ('dsh-sync-msg-' + [guid]::NewGuid().ToString('N') + '.txt')
+    try {
+      [IO.File]::WriteAllText($msgFile, $msg, (New-Object Text.UTF8Encoding($false)))
+      & git commit -F $msgFile 2>&1 | Select-Object -First 3 | ForEach-Object { '  ' + $_ }
+      Write-Host ('committed: ' + $msg) -ForegroundColor Green
+    } finally {
+      Remove-Item -LiteralPath $msgFile -Force -ErrorAction SilentlyContinue
+    }
   } else {
     Write-Host 'no changes to commit' -ForegroundColor DarkGray
   }
