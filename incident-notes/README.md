@@ -11,6 +11,8 @@
 | [`blank-page-tdz.md`](blank-page-tdz.md) | 页面整体不渲染 | 补丁引用了尚未初始化的 `const` 绑定，产生 TDZ 错误；语法检查无法检出（运行期错误），表现为页面完全空白，页面探针返回长度由约 2250 降至约 44 |
 | [`invisible-console-window.md`](invisible-console-window.md) | 无窗口启动器仍创建控制台窗口并抢占焦点 | 可执行文件被编译为控制台子系统；`CREATE_NO_WINDOW` 仅作用于子进程，不作用于自身。通过窗口枚举探针将「窗口出现、焦点抢占、窗口关闭」三个事件与计划任务启动时间精确对应 |
 | [`bsod-triage.md`](bsod-triage.md) | 蓝屏与硬冻结排查 | 出现多个不同的 bugcheck 代码并伴随无转储的强制关机，判定为平台级不稳定而非单一驱动缺陷。排查顺序：清除第三方内核驱动残留 → 配置转储与手动触发崩溃 → 24 小时观察窗口 |
+| [`antivirus-rewrites-crash-dump-config.md`](antivirus-rewrites-crash-dump-config.md) | 蓝屏后按配置找不到转储文件 | 系统转储配置（`CrashDumpEnabled` / `MinidumpDir`）被内核级反作弊组件反复改回默认值 —— **不是配置损坏，是设计行为**。判据：改写有固定目标值、有明确时间窗（游戏运行时段），且守卫焊回后仍会被再次改写 |
+| [`session-format-change-breaks-plugins.md`](session-format-change-breaks-plugins.md) | 宿主升级后全部插件加载失败 | 会话日志格式发生大的版本变更，读取它的插件按旧结构解析并对 `undefined` 取值。判据：**配置文件全对、插件文件全在、boot 清单也无缺失**（即所有「静态检查」都是绿的），只有运行期解析炸掉 |
 
 ## 复盘文档模板
 

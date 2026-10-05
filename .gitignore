@@ -1,0 +1,17 @@
+# Python bytecode caches. `py_compile` and any import of the tooling create these next to
+# the sources; they are build artifacts of this checkout, not part of the repository.
+__pycache__/
+*.py[cod]
+
+# Snapshot / backup output produced by the tools in this repository when they are run
+# with their defaults pointed at the checkout directory. Real deployments write these
+# elsewhere (see snapshot-tools/README.md).
+/snapshots/
+*.bak-*
+*.log
+
+# Local editor / OS noise.
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
