@@ -193,7 +193,7 @@ def main():
                 detail.append({"id": f["id"], "verdict": verdict,
                                "why": v.get("why", ""), "truth": f["truth"]})
             if unmatched:
-                print("       ⚠️ 裁判漏判 %d/%d 项（按 missing 计）—— 该模型分数可能偏低"
+                print("       注意： 裁判漏判 %d/%d 项（按 missing 计）—— 该模型分数可能偏低"
                       % (unmatched, len(facts)))
 
             total = len(facts)

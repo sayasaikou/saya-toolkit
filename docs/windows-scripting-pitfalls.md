@@ -30,7 +30,7 @@ Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $script, 'D:\my workspace\
 ```powershell
 $D = 'D:\data'
 $list = @($D + '\a', $D + '\b')
-# ❌ 实测结果是一条字符串：D:\data\aD:\data\b
+# 否 实测结果是一条字符串：D:\data\aD:\data\b
 ```
 
 **机制**：逗号的优先级**高于** `+`。上面被解析为 `$D + ('\a', $D) + '\b'` —— 中间的数组在与字符串相加时被强制转换并拼接，于是两个元素粘成一条。
@@ -47,7 +47,7 @@ $list += Join-Path $D 'b'
 
 ```powershell
 $l = New-Object System.Collections.Generic.List[string]
-$l.AddRange($someObjectArray)   # ❌ Object[] 不会自动转成 IEnumerable[string]
+$l.AddRange($someObjectArray)   # 否 Object[] 不会自动转成 IEnumerable[string]
 ```
 
 **处置**：`foreach` 逐条 `Add`，或先 `[string[]]` 强转。
@@ -93,7 +93,7 @@ $i.NextRunTime    # 期望是预期的未来时刻
 $i.LastTaskResult # 手动触发一次后应检查
 ```
 
-⚠️ **别在任务自己的运行实例里读自己的 `State`** —— 会把「已禁用」读成 `Running`。真实状态一律用**外部会话**读。
+注意： **别在任务自己的运行实例里读自己的 `State`** —— 会把「已禁用」读成 `Running`。真实状态一律用**外部会话**读。
 
 ### 2.2 `schtasks /change` 的 `/tr` 嵌套引号会翻车
 
@@ -134,7 +134,7 @@ Register-ScheduledTask -Xml $xml -TaskName '<TASK>' -Force
 
 **处置**：用一个足够大的有限值，例如 **3650 天**。
 
-### 2.7 ⚠️ 只读任务别给 `RunLevel Highest`
+### 2.7 注意： 只读任务别给 `RunLevel Highest`
 
 巡检、核对、状态回读这类**只读**任务没有任何提权需求。给它们 `Highest` 只会扩大攻击面，并在非提权会话里直接导致注册失败（见 2.9）。
 
@@ -142,7 +142,7 @@ Register-ScheduledTask -Xml $xml -TaskName '<TASK>' -Force
 
 临时任务（重启服务、排队执行、一次性修复）干完活要 `Unregister-ScheduledTask`，**别留残渣**。
 
-⚠️ **已知边界**：「注销正在运行的那个任务自己」会被排到任务结束之后执行 —— 现象是每次清理都剩一个新任务。
+注意： **已知边界**：「注销正在运行的那个任务自己」会被排到任务结束之后执行 —— 现象是每次清理都剩一个新任务。
 
 **姿势**：注册一个新任务去注销旧任务，再从会话里注销「正在跑的那个」。
 
@@ -161,7 +161,7 @@ Register-ScheduledTask -Xml $xml -TaskName '<TASK>' -Force
 
 ## 3. 编码
 
-### 3.1 ⚠️ `Set-Content -Encoding UTF8` 的语义在两个引擎间变了
+### 3.1 注意： `Set-Content -Encoding UTF8` 的语义在两个引擎间变了
 
 | 引擎 | 写出的文件 |
 | --- | --- |
@@ -256,7 +256,7 @@ handle64.exe /accepteula -nobanner -a -u "<关键字>"
 
 - 端口是否在监听（连续多次采样）；
 - 心跳文件 / 进程启动时间是否前进；
-- ⚠️ 同一个服务可能**故意监听第二个端口**（与主端口同 pid、同响应）—— **别当孤儿进程杀掉**。
+- 注意： 同一个服务可能**故意监听第二个端口**（与主端口同 pid、同响应）—— **别当孤儿进程杀掉**。
 
 同理：**别拿日志文件的 mtime 当「服务死了」的证据** —— 日志会长时间不更新而服务完全正常。
 
@@ -270,7 +270,7 @@ handle64.exe /accepteula -nobanner -a -u "<关键字>"
 2. 补丁必须**幂等**（重复施加不产生重复插入）；
 3. 补丁脚本自带**语法校验**，不过就拒绝写入；
 4. 升级后**重新施加并回读**（检查标记命中数，而不是相信脚本打印的「已应用」）；
-5. ⚠️ **语法校验只查语法**，查不出运行期错误（未定义引用、暂时性死区等）—— 关键补丁需要额外的运行期验证或自检脚本兜底。
+5. 注意： **语法校验只查语法**，查不出运行期错误（未定义引用、暂时性死区等）—— 关键补丁需要额外的运行期验证或自检脚本兜底。
 
 ---
 
@@ -290,7 +290,7 @@ handle64.exe /accepteula -nobanner -a -u "<关键字>"
 
 判据示例：帧文件大小与预期不符、缺尾部校验标记、临时文件名未改名完成。
 
-### 5.3 ⚠️ 别用单一指标断定进程死了
+### 5.3 注意： 别用单一指标断定进程死了
 
 **实测反例**：某下载任务的日志里，blob 长度**停住 60 秒零增长**，看起来完全像卡死；实际是它在**写 manifest + 做校验**，命令最终 `exit=0` 正常结束。
 

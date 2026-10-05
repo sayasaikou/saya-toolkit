@@ -46,7 +46,7 @@ pwsh -NoProfile -File .\html-shot.ps1 -Html ".\report.html" -Out ".\report.png" 
 
 以下脚本均为可选工具，参数均带默认值，可按部署环境覆盖。
 
-> ### ⚠️ 关于 2.2 / 2.3 / 2.4 三节：它们绑定的是**旧架构**
+> ### 注意： 关于 2.2 / 2.3 / 2.4 三节：它们绑定的是**旧架构**
 >
 > 这三节（`restart-verify.ps1` / `service-watchdog.ps1` / `watchdog-rescue-once.ps1`）围绕一种**「独立启动器进程 + 外部 Web 服务 + 独立日志文件」**的部署形态写成：看门狗定时探测端口，端口没了就重新拉起启动器；重启脚本靠读**启动器日志**里的令牌去抓页面验证。
 >

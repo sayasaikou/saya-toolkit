@@ -57,7 +57,7 @@ BACKENDS = {
         "url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         "model": "qwen3.5-omni-plus",
         "keyenv": "DASHSCOPE_API_KEY",
-        "note": "阿里百炼 omni。⚠️ 2026-10-03 三轮实测（22 项真值）："
+        "note": "阿里百炼 omni。注意： 2026-10-03 三轮实测（22 项真值）："
                 "omni 59.1 / 59.1 / 54.5，vl-plus 50.0 / 54.5 / 59.1 —— "
                 "**两者合计基本持平，谈不上谁更强**（早先只看两轮就下了'omni 更强'的结论，"
                 "第三轮就翻了）。但方向是稳定的：omni 在 ref-b（干活形态）上 88/100/75，"
@@ -69,12 +69,12 @@ BACKENDS = {
         # 只有 DASHSCOPE_API_KEY 与 ZAI_API_KEY）—— 没有 keyenv 时 available_models()
         # 会自动跳过，所以现在挂着不影响任何流程，拿到 Key 就能用。
         #
-        # ⚠️ 拿到 Key 后要先确认两件事（方舟账号之间不一样）：
+        # 注意： 拿到 Key 后要先确认两件事（方舟账号之间不一样）：
         #   1) model 到底填**模型名**还是**推理接入点 ID**（形如 ep-2026xxxx）——
         #      有的账号必须用后者，填错会报 model not found；
         #   2) 该账号有没有开通这个模型（控制台 → 开通管理）。
         # 依据：SuperCLUE-VLM 2026-04 中文多模态榜，字节 Doubao-Seed-2.0-Pro 以 90.66
-        # 分列总榜第一（超 Gemini-3.1-Pro 89.35）。⚠️ 但那份榜测的是通用识别/图表/
+        # 分列总榜第一（超 Gemini-3.1-Pro 89.35）。注意： 但那份榜测的是通用识别/图表/
         # 医疗影像，**不含"看服装细节"**，所以对我们要先实测再信（判据：换模型必过真值集）。
         "url": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
         "model": "doubao-seed-2-0-pro-260215",
