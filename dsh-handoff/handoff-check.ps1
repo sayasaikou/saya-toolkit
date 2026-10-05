@@ -4,7 +4,18 @@ param(
     [switch]$LogOnly,
     [string]$LogPath = '',
     [string]$DshRoot = $(if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }),
-    [string]$Workspace = $(if ($env:DSH_WORKSPACE) { $env:DSH_WORKSPACE } else { Join-Path $env:USERPROFILE 'workspace' })
+    [string]$Workspace = $(if ($env:DSH_WORKSPACE) { $env:DSH_WORKSPACE } else { Join-Path $env:USERPROFILE 'workspace' }),
+    [string]$ProfileName = '',
+
+    # Patch-block id of the skin whose on/off flag is reported. Empty = skip the skin
+    # section entirely (a machine that uses no skins should not need to configure this).
+    [string]$SkinId = '',
+
+    # Declare that "the skin is off in every layer" is the intended state, not drift.
+    # Use this when the skin is deliberately kept off (for example because it conflicts
+    # with another UI plugin). Without it, an all-off skin is still reported -- as
+    # "off (uniform)" rather than as a warning -- so the state stays visible either way.
+    [switch]$SkinExpectedOff
 )
 
 # ---------------------------------------------------------------------------
@@ -14,10 +25,10 @@ param(
 #                     Read yours with:  Get-ScheduledTask | Select TaskName
 #                     Empty list = skip the whole task section.
 #
-#   $PersonaPlugin  : OPTIONAL, DSH-specific. Name of a plugin directory under
-#                     "<DshRoot>\profiles\web\plugins\" whose own check script
-#                     self-verifies an injected prompt/persona (for example, a
-#                     plugin that injects a character spec on session start).
+#   $PersonaPlugin  : OPTIONAL. Name of a plugin directory under
+#                     "<DshRoot>\profiles\<ProfileName>\plugins\" whose own check
+#                     script self-verifies an injected prompt/persona (for example,
+#                     a plugin that injects a character spec on session start).
 #                     If the directory is absent the check is reported as
 #                     "n/a" - never a warning. Set to '' to disable.
 # ---------------------------------------------------------------------------
@@ -25,6 +36,22 @@ $script:MonitoredTasks = @()  # e.g. @('MyBackupTask','MyWatchdog')
 $script:PersonaPlugin  = ''  # e.g. 'my-persona-plugin'
 $script:BootExpect     = @()  # e.g. @('my-plugin/client.js')
 $script:MemeGlob       = ''   # e.g. 'my-memes\*'
+$script:BootSource     = 'disk'  # 'disk' | 'http' | 'auto' - see Get-BootFact
+
+# Which directory under "<DshRoot>\profiles\" is the live profile: it locates the
+# skin patch layers, the optional persona plugin and the on-disk boot inventory.
+# Empty -ProfileName = auto-detect, preferring 'desktop' (the official Electron
+# client owns that name), then 'web' (the launcher era).
+if ([string]::IsNullOrEmpty($ProfileName)) {
+    $script:ProfileName = ''
+    foreach ($cand in @('desktop', 'web')) {
+        if (Test-Path -LiteralPath (Join-Path $DshRoot "profiles\$cand")) { $script:ProfileName = $cand; break }
+    }
+} else {
+    $script:ProfileName = $ProfileName
+}
+$script:ProfileRoot = Join-Path $DshRoot 'profiles'
+if (-not [string]::IsNullOrEmpty($script:ProfileName)) { $script:ProfileRoot = Join-Path $script:ProfileRoot $script:ProfileName }
 
 # ---------------------------------------------------------------------------
 # HANDOFF drift check / renderer.
@@ -75,25 +102,45 @@ function Get-FileFact {
 
 function Get-SkinFact {
     $rows = @()
-    foreach ($f in @("${DshRoot}\cordis.patch.yml", "${DshRoot}\profiles\web\cordis.patch.yml")) {
+    foreach ($f in @("${DshRoot}\cordis.patch.yml", "$script:ProfileRoot\cordis.patch.yml")) {
         $txt = Read-TextSafe $f
         # A missing patch file on a machine that does not use skins is normal:
-        # skip silently instead of warning (the DSH default has no patch files).
+        # skip silently instead of warning (the default has no patch files).
         if ($null -eq $txt) { continue }
         $lines = $txt -split "`r?`n"
         $flag = $null; $label = 'no-flag'
         for ($i = 0; $i -lt $lines.Count; $i++) {
-            if ($lines[$i] -match 'id:\s*ui-skin-maid-atelier') {
+            if ($lines[$i] -match ('id:\s*' + [regex]::Escape($SkinId))) {
                 for ($j = $i + 1; $j -lt [Math]::Min($i + 4, $lines.Count); $j++) {
                     if ($lines[$j] -match 'disabled:\s*(true|false)') { $flag = ($Matches[1] -eq 'false'); $label = $Matches[1]; break }
                 }
                 break
             }
         }
-        $rows += [pscustomobject]@{ file = (Split-Path $f -Leaf); dir = (Split-Path (Split-Path $f -Parent) -Leaf); enabled = $flag; label = $label }
+        $rows += [pscustomobject]@{ file = (Split-Path $f -Leaf); dir = (Split-Path (Split-Path $f -Parent) -Leaf); enabled = $flag; label = $label; note = '?' }
     }
-    $bad = @($rows | Where-Object { $_.enabled -ne $true })
-    if ($bad.Count -gt 0) { NewWarn "skin flag not clean: " + (($bad | ForEach-Object { "$($_.dir)/$($_.file)=$($_.label)" }) -join ', ') }
+
+    # WHY "ALL OFF" IS NOT AUTOMATICALLY A PROBLEM
+    # A skin manager writes disabled: true into every layer on its own, and a skin the owner
+    # turned off by hand is a legitimate state, not drift. Treating it as drift produces a
+    # probe that is red forever on machines where the skin is simply not in use -- and a
+    # permanently red probe gets ignored exactly when it matters.
+    # What IS worth a warning is an INCONSISTENT state: one layer on, another off. That means
+    # something wrote to one of them without the other, which is the real failure signature.
+    $offRows = @($rows | Where-Object { $_.enabled -eq $false })
+    $onRows = @($rows | Where-Object { $_.enabled -eq $true })
+    $note = 'off (CHECK: not uniform)'
+    if ($rows.Count -gt 0 -and $onRows.Count -eq $rows.Count) { $note = 'on' }
+    if ($rows.Count -gt 0 -and $offRows.Count -eq $rows.Count) { $note = 'off (uniform)' }
+    if ($SkinExpectedOff -and $rows.Count -gt 0 -and $offRows.Count -eq $rows.Count) { $note = 'off (declared expected by -SkinExpectedOff)' }
+    foreach ($r in $rows) { $r.note = $note }
+
+    $inconsistent = @($rows | Where-Object { $_.enabled -ne $true -and $_.enabled -ne $false })
+    if ($inconsistent.Count -gt 0) {
+        NewWarn ("skin flag unreadable (no disabled: entry found): " + (($inconsistent | ForEach-Object { "$($_.dir)/$($_.file)" }) -join ', '))
+    } elseif ($offRows.Count -gt 0 -and $onRows.Count -gt 0) {
+        NewWarn ("skin flag not uniform across layers (one on, one off -- the manager may have rewritten only one): " + (($rows | ForEach-Object { "$($_.dir)/$($_.file)=$($_.label)" }) -join ', '))
+    }
     return $rows
 }
 
@@ -157,10 +204,69 @@ function Get-NodeFact {  # resolves the node interpreter used for JS-side checks
 }
 
 function Get-BootFact {
+    # Where the "which client bundles actually came up" list comes from. Both
+    # sources answer the same question, they just use different evidence:
+    #
+    #   disk (default) : inventory the bundles named in the active profile's
+    #                    package.json that really ship a client.js on disk. No
+    #                    HTTP, no token, no running service. This is the only
+    #                    workable source for the official Electron desktop client:
+    #                    it keeps its per-boot web token inside the app, so
+    #                    scraping the index page from outside is rejected and the
+    #                    old check silently lost its source.
+    #   http           : the legacy dsh-launcher shape - read the web token out of
+    #                    the launcher log, fetch the index page and take the
+    #                    client.js list from the HTML.
+    #   auto           : disk when the profile package.json exists, else http.
+    #
+    # A source that is not there is only worth a warning when $script:BootExpect
+    # actually asks for something; an unconfigured check just says "unavailable".
     param([string[]]$Expect)
-    $log = "${DshRoot}\dsh-launcher\dsh.log"
-    if (-not (Test-Path -LiteralPath $log)) { NewWarn "launcher log missing: $log"; return $null }
-    $tail = Get-Content -LiteralPath $log -Tail 400 -Encoding UTF8
+    if ($null -eq $Expect) { $Expect = @() }
+    $source = [string]$script:BootSource
+    if ($source -ne 'disk' -and $source -ne 'http') { $source = 'auto' }
+    $profilePj = Join-Path $script:ProfileRoot 'package.json'
+    $launcherLog = "${DshRoot}\dsh-launcher\dsh.log"
+    if ($source -eq 'auto') { if (Test-Path -LiteralPath $profilePj) { $source = 'disk' } else { $source = 'http' } }
+    if ($source -eq 'disk' -and -not (Test-Path -LiteralPath $profilePj)) {
+        if (@($Expect).Count -gt 0) { NewWarn "boot manifest source unavailable: no profile package.json at $profilePj (set `$script:BootSource = 'http' for the launcher shape)" }
+        return $null
+    }
+    if ($source -eq 'http' -and -not (Test-Path -LiteralPath $launcherLog)) {
+        if (@($Expect).Count -gt 0) { NewWarn "boot manifest source unavailable: no launcher log at $launcherLog" }
+        return $null
+    }
+    if ($source -eq 'http') { return Get-BootFactHttp -Expect $Expect -LogFile $launcherLog }
+    return Get-BootFactDisk -Expect $Expect
+}
+
+function Get-BootFactDisk {
+    param([string[]]$Expect)
+    $profileRoot = $script:ProfileRoot
+    $profilePj = Join-Path $profileRoot 'package.json'
+    $bundles = @()
+    try { $bundles = @((Get-Content -LiteralPath $profilePj -Raw -Encoding UTF8 | ConvertFrom-Json).dsh.profile.bundles) }
+    catch { NewWarn ('profile package.json unreadable: ' + $_.Exception.Message); return $null }
+    $manifest = @()
+    foreach ($b in $bundles) {
+        foreach ($root in @((Join-Path $profileRoot 'node_modules'), "${DshRoot}\profiles\node_modules")) {
+            $dir = Join-Path $root $b
+            if (-not (Test-Path -LiteralPath $dir)) { continue }
+            $hit = Get-ChildItem -LiteralPath $dir -Recurse -Depth 2 -Force -File -Filter 'client.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($hit) { $manifest += ($b + '/' + $hit.Name) }
+            break
+        }
+    }
+    $manifest = @($manifest | Sort-Object -Unique)
+    $missing = @()
+    foreach ($e in $Expect) { if (-not ($manifest | Where-Object { $_ -like "*$e*" })) { $missing += $e } }
+    if ($missing.Count -gt 0) { NewWarn ("plugin NOT in boot manifest (disk inventory): " + ($missing -join ', ')) }
+    return [ordered]@{ count = $manifest.Count; entries = $manifest; missing = $missing; source = 'disk-inventory' }
+}
+
+function Get-BootFactHttp {
+    param([string[]]$Expect, [string]$LogFile)
+    $tail = Get-Content -LiteralPath $LogFile -Tail 400 -Encoding UTF8
     $tokens = @()
     foreach ($m in [regex]::Matches(($tail -join "`n"), 'token=([A-Za-z0-9_\-]+)')) { $tokens += $m.Groups[1].Value }
     $tokens = @($tokens | Select-Object -Unique)
@@ -179,16 +285,16 @@ function Get-BootFact {
     if ($null -eq $manifest) { NewWarn "boot manifest fetch failed ($err)"; return $null }
     $missing = @()
     foreach ($e in $Expect) { if (-not ($manifest | Where-Object { $_ -like "*$e*" })) { $missing += $e } }
-    if ($missing.Count -gt 0) { NewWarn "plugin NOT in boot manifest: " + ($missing -join ', ') }
-    return [ordered]@{ count = $manifest.Count; entries = $manifest; missing = $missing; token = $used }
+    if ($missing.Count -gt 0) { NewWarn ("plugin NOT in boot manifest (http index): " + ($missing -join ', ')) }
+    return [ordered]@{ count = $manifest.Count; entries = $manifest; missing = $missing; source = 'http-index' }
 }
 
 function Get-PersonaFact {
     # Optional, deployment-specific check. With no plugin configured, or with the
     # plugin directory absent, this reports nothing at all and raises no warning.
     if ([string]::IsNullOrEmpty($script:PersonaPlugin)) { return $null }
-    if (-not (Test-Path -LiteralPath "${DshRoot}\profiles\web\plugins\$($script:PersonaPlugin)")) { return $null }
-    $stampPath = "${DshRoot}\profiles\web\plugins\$($script:PersonaPlugin)\_loaded.stamp"
+    if (-not (Test-Path -LiteralPath "$script:ProfileRoot\plugins\$($script:PersonaPlugin)")) { return $null }
+    $stampPath = "$script:ProfileRoot\plugins\$($script:PersonaPlugin)\_loaded.stamp"
     $stamp = $null
     $txt = Read-TextSafe $stampPath
     if ($null -ne $txt) {
@@ -202,7 +308,7 @@ function Get-PersonaFact {
     }
     $checkPass = $null; $checkTotal = $null; $checkFail = $null
     try {
-        $out = & $script:NodeExe "${DshRoot}\profiles\web\plugins\$($script:PersonaPlugin)\check.mjs" 2>&1 | Out-String
+        $out = & $script:NodeExe "$script:ProfileRoot\plugins\$($script:PersonaPlugin)\check.mjs" 2>&1 | Out-String
         $pass = @($out -split "`r?`n" | Where-Object { $_ -match '^\s*\[OK\]' }).Count
         $fail = @($out -split "`r?`n" | Where-Object { $_ -match '^\s*\[FAIL\]' }).Count
         $checkPass = $pass; $checkFail = $fail; $checkTotal = $pass + $fail
@@ -215,11 +321,16 @@ function Get-PersonaFact {
 
 function Get-ArchiveFact {
     $rows = @()
+    $missing = @()
     foreach ($f in @("${DshRoot}\AGENTS.md", "$Workspace\AGENTS.md", "$Workspace\HANDOFF.md", "${DshRoot}\handoff\handoff-state.md")) {
         $i = Get-Item -LiteralPath $f -ErrorAction SilentlyContinue
-        if ($null -eq $i) { NewWarn "archive missing: $f"; continue }
+        if ($null -eq $i) { $missing += $f; continue }
         $rows += [pscustomobject]@{ name = (Split-Path $f -Leaf); path = $f; size = $i.Length; mtime = $i.LastWriteTime }
     }
+    # None of them there at all = a deployment that is not set up yet, not one that
+    # drifted: stay quiet instead of filing four "archive missing" warnings.
+    # Partially present = something really went missing, which is worth a warning.
+    if ($rows.Count -gt 0) { foreach ($f in $missing) { NewWarn "archive missing: $f" } }
     return $rows
 }
 
@@ -227,7 +338,10 @@ function Get-ArchiveFact {
 function Parse-Registry {
     param([string]$StatePath)
     $txt = Read-TextSafe $StatePath
-    if ($null -eq $txt) { NewWarn "state file missing: $StatePath"; return @() }
+    # No state file = nothing to verify here, and no warning either: Get-ArchiveFact
+    # reports a missing state file once the rest of the deployment is present.
+    # (Parse-WatchFiles below already behaves this way.)
+    if ($null -eq $txt) { return @() }
     $rows = @()
     $inTbl = $false
     foreach ($line in ($txt -split "`r?`n")) {
@@ -295,7 +409,10 @@ $node = Get-NodeFact
 Say ("node       : " + $(if ($node) { "$($node.path) $($node.version)" } else { 'NOT FOUND' }))
 $persona = Get-PersonaFact
 $boot = Get-BootFact -Expect $script:BootExpect
-$skin = Get-SkinFact
+# Skin reporting is opt-in: a deployment that uses no skins should not have to configure
+# -SkinId just to silence a section it does not care about.
+$skin = @()
+if ($SkinId) { $skin = Get-SkinFact }
 $tasks = Get-TaskFact -Names $script:MonitoredTasks
 $memes = Get-MemeFact
 $files = @()
@@ -326,6 +443,21 @@ if (-not $renderMode) {
     if ($handoff -and $globalAgents -and $handoff.mtime -lt $globalAgents.mtime) { NewWarn "HANDOFF.md older than global AGENTS.md (handoff $(Get-AgeHours $handoff.mtime)h vs agents $(Get-AgeHours $globalAgents.mtime)h)" }
     if ($handoff -and $wsAgents -and $handoff.mtime -lt $wsAgents.mtime) { NewWarn 'HANDOFF.md older than workspace AGENTS.md' }
     if ($handoff -and $stateItem -and $handoff.mtime -lt $stateItem.LastWriteTime) { NewWarn 'HANDOFF.md older than handoff-state.md -> run render' }
+    # guard: a STATE marker quoted verbatim inside body text (even inside a code
+    # block) is picked up by Read-StateSection's regex as a real boundary, so the
+    # section gets sliced in half and everything after it lands in the next one -
+    # while the run still says "warnings: none". Measured once: the status section
+    # kept 3 of its 101 lines and the whole pending section was swallowed by the
+    # done section (rendered file 112 KB -> 204 KB). Quote markers as STATE:XXX
+    # without the angle brackets instead.
+    $stxt = Read-TextSafe $statePath
+    if ($null -ne $stxt) {
+        $inline = 0
+        foreach ($ln in ($stxt -split "`r?`n")) {
+            if ($ln -match 'STATE:' -and $ln -match '<!--' -and $ln -notmatch '^\s*<!--\s*/?STATE:[A-Z]+\s*-->\s*$') { $inline++ }
+        }
+        if ($inline -gt 0) { NewWarn "handoff-state.md has $inline INLINE STATE marker(s) inside body text -> they hijack section parsing; quote them as STATE:XXX without angle brackets" }
+    }
     if ($handoff) {
         $htxt = Read-TextSafe $handoff.path
         $m = [regex]::Match($htxt, 'CHECKED_AT:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})')
@@ -342,8 +474,9 @@ if ($persona -and $persona.age -gt 48) { NewWarn "persona stamp is $($persona.ag
 Say ''
 Say '--- facts ---'
 Say ("persona stamp : " + $(if ($persona.stamp) { "$($persona.stamp.ToString('yyyy-MM-dd HH:mm:ss'))  (" + $persona.age + " h old)" } else { 'unknown' }) + "  check=" + $(if ($persona.checkFail -eq 0) { 'GREEN' } elseif ($null -eq $persona.checkFail) { 'n/a' } else { 'FAIL' }) + "  pass=" + $(if ($null -ne $persona.checkTotal) { "$($persona.checkPass)/$($persona.checkTotal)" } else { 'n/a' }))
-Say ("boot manifest : " + $(if ($boot) { "$($boot.count) entries, missing=" + $(if (@($boot.missing).Count -eq 0) { 'none' } else { (@($boot.missing) -join ',') }) } else { 'unavailable' }))
-Say ("skin flags    : " + (($skin | ForEach-Object { "$($_.dir)=$($_.label)" }) -join '  |  '))
+Say ("boot manifest : " + $(if ($boot) { "$($boot.count) entries, missing=" + $(if (@($boot.missing).Count -eq 0) { 'none' } else { (@($boot.missing) -join ',') }) + "  (" + $boot.source + ")" } else { 'unavailable' }))
+if ($skin.Count -gt 0) { Say ("skin flags    : " + (($skin | ForEach-Object { "$($_.dir)=$($_.note)" }) -join '  |  ')) }
+else { Say 'skin flags    : n/a (no -SkinId given)' }
 Say ("meme assets   : " + $(if ($memes) { "$($memes.total) total (official $($memes.official), custom $($memes.custom))" } else { 'n/a' }))
 foreach ($t in $tasks) { Say ("task          : {0}  exists={1}  state={2}  next={3}" -f $t.name, $t.exists, $t.state, $t.next) }
 foreach ($f in $files) { Say ("file          : {0,-22} {1,8} B  {2}  ({3} h old)" -f $f.label, $f.size, $f.mtime.ToString('MM-dd HH:mm'), $f.age) }
@@ -531,11 +664,21 @@ function Main {
 
 # ---------------------------------------------------------------- run
 
-$exitCode = 0
+# TECH NOTE: $exitCode must be forced to a scalar.
+# Say() writes through Write-Output, and everything Main() emits on the success path is
+# captured by the assignment below -- so $exitCode becomes an Object[] holding one entry
+# per printed line. Two consequences, both silent:
+#   * ($exitCode -eq 0) on an array returns an ARRAY (@(0)), and a single-element array
+#     converts to $true when that element is 0, so the warning check below never fires and
+#     the documented "exit code 2 = there are warnings" contract does not hold;
+#   * `exit <array>` makes PowerShell exit 0 regardless of content.
+# Measured: 12 warnings produced, exit code still 0. Taking the LAST element fixes it,
+# because Main() returns its status as the final thing it prints.
+$fatal = $false
 try {
-    $exitCode = Main
+    $exitCode = @(Main)[-1]
 } catch {
-    $exitCode = 3
+    $fatal = $true
     # keep the reason even if the crash happened before the first Say
     $script:Log.Add('FATAL: ' + $_.Exception.Message) | Out-Null
     if (-not $LogOnly) { Write-Output ('FATAL: ' + $_.Exception.Message) }
@@ -543,5 +686,9 @@ try {
     Write-RunLog
 }
 
-if ($exitCode -eq 0 -and $script:Warn.Count -gt 0) { $exitCode = 2 }
-exit $exitCode
+# $script:Warn.Count, not $exitCode, decides 2 vs 0 -- the count cannot be inflated by
+# captured output, so it is the reliable signal here. A crash is reported as 3 so that
+# "clean run" and "died before it could complain" stay distinguishable.
+if ($fatal) { exit 3 }
+if ($script:Warn.Count -gt 0) { exit 2 }
+exit 0
