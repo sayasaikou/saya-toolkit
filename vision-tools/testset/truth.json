@@ -1,0 +1,255 @@
+{
+  "version": "2026-10-02",
+  "note": "vision-tools 识图能力的回归测试集。真值来源分三级：adjudicated=用户亲自裁定；verified=本工具高倍读图逐条质证过；selfmade=自造的合成图（绝对真值）。改任何视觉配置后，跑 vscore.py 对比分数。 2026-10-02 加 short 字段：给机器打分用的简短标准答案（truth 仍保留完整表述与出处）。图片本体未随仓库附带：请按 path 自备同名图片（放 testset/images/，在 vision-tools 目录下运行），或直接改 path 字段。",
+  "images": [
+    {
+      "id": "synthetic-ocr",
+      "path": "testset/images/synthetic.png",
+      "label": "自造合成图（OCR 基线）",
+      "category": "ocr",
+      "truth_level": "selfmade",
+      "facts": [
+        {
+          "id": "line1",
+          "q": "图中第一行文字是什么？",
+          "truth": "Hello World 12345",
+          "conf": "high",
+          "short": "Hello World 12345"
+        },
+        {
+          "id": "line2",
+          "q": "图中第二行文字是什么？",
+          "truth": "OCR TEST LINE TWO",
+          "conf": "high",
+          "short": "OCR TEST LINE TWO"
+        },
+        {
+          "id": "line3",
+          "q": "图中第三行文字是什么？",
+          "truth": "Tesseract 5.4 local check",
+          "conf": "high",
+          "short": "Tesseract 5.4 local check"
+        }
+      ]
+    },
+    {
+      "id": "ref-a",
+      "path": "testset/images/ref-a.png",
+      "label": "原版设定-01（图A 常态）",
+      "category": "appearance",
+      "truth_level": "adjudicated",
+      "facts": [
+        {
+          "id": "collar",
+          "q": "领型是什么样式？",
+          "truth": "立领（白色小圆波浪边／荷叶边立领）",
+          "src": "用户裁定",
+          "conf": "high",
+          "short": "立领"
+        },
+        {
+          "id": "shoulder",
+          "q": "是否露肩？",
+          "truth": "露肩",
+          "src": "用户裁定",
+          "conf": "high",
+          "short": "露肩"
+        },
+        {
+          "id": "brooch",
+          "q": "领口的蝴蝶结上有没有宝石装饰？",
+          "truth": "有——领结中央嵌一颗深蓝色宝石状装饰（属领结的一部分，不是一枚单独别上去的独立胸针）",
+          "src": "复检修正 2026-10-02（模型一致 + 取色佐证）",
+          "conf": "high",
+          "short": "有，蓝宝石装饰"
+        },
+        {
+          "id": "shirt_button_color",
+          "q": "衬衫前襟的扣子是什么颜色？",
+          "truth": "深蓝近黑（复检：该区域取色 #272948 深色占 62%，衬衫本体为浅白 #C8BCD0）",
+          "src": "复检确认 2026-10-02（PIL 取色，两个模型都答错）",
+          "conf": "high",
+          "short": "深蓝"
+        },
+        {
+          "id": "vest_buttons",
+          "q": "胸衣上的金色扣子几颗、怎么排？",
+          "truth": "2×2 布局，共四颗",
+          "src": "用户裁定",
+          "conf": "high",
+          "short": "四颗，2x2"
+        },
+        {
+          "id": "headdress_bow",
+          "q": "头饰上的蝴蝶结在画面哪一侧？",
+          "truth": "画面右侧",
+          "src": "本工具质证",
+          "conf": "high",
+          "short": "右侧"
+        },
+        {
+          "id": "ahoge",
+          "q": "呆毛从哪里长出来？",
+          "truth": "从头饰后面钻出（不是长在头饰前面）",
+          "src": "规格/用户确认",
+          "conf": "high",
+          "short": "从头饰后面钻出"
+        },
+        {
+          "id": "apron_whale",
+          "q": "围裙上印着什么图案？",
+          "truth": "喷水的深蓝小鲸鱼（尾上翘、面朝左），位置在围裙上",
+          "src": "本工具质证",
+          "conf": "medium",
+          "short": "喷水的小鲸鱼"
+        },
+        {
+          "id": "skirt_layers",
+          "q": "裙子有几层、分别是什么？",
+          "truth": "至少四层：白色围裙层／深蓝外罩裙／浅蓝竖条纹内裙／白色荷叶边衬裙",
+          "src": "本工具质证",
+          "conf": "medium",
+          "short": "四层"
+        },
+        {
+          "id": "skirt_vine",
+          "q": "深蓝外罩裙下摆有什么装饰纹样？",
+          "truth": "金色藤蔓纹",
+          "src": "本工具质证",
+          "conf": "medium",
+          "short": "金色藤蔓纹"
+        },
+        {
+          "id": "side_bows",
+          "q": "裙子前侧有没有小蝴蝶结？",
+          "truth": "有，左右各一个（深蓝底、金色装饰）",
+          "src": "本工具质证",
+          "conf": "medium",
+          "short": "有，左右各一个"
+        },
+        {
+          "id": "shoes",
+          "q": "鞋子是什么样式、有什么金属件？",
+          "truth": "深蓝亮面玛丽珍鞋：圆头、脚背一条横带、金色搭扣",
+          "src": "本工具质证",
+          "conf": "high",
+          "short": "深蓝玛丽珍鞋，金色搭扣"
+        },
+        {
+          "id": "hair_gradient",
+          "q": "头发颜色是什么走向？",
+          "truth": "发根最深、发梢最浅（深蓝→中蓝→浅蓝渐变）",
+          "src": "本工具读图",
+          "conf": "high",
+          "short": "发根深发梢浅"
+        },
+        {
+          "id": "whale_tail",
+          "q": "有没有鲸尾、从哪伸出？",
+          "truth": "有，从腰臀偏右／裙摆下方伸出",
+          "src": "规格",
+          "conf": "medium",
+          "short": "有，腰臀偏右"
+        }
+      ]
+    },
+    {
+      "id": "ref-b",
+      "path": "testset/images/ref-b.png",
+      "label": "原版设定-02（图B 干活形态）",
+      "category": "appearance",
+      "truth_level": "adjudicated",
+      "facts": [
+        {
+          "id": "collar",
+          "q": "领型是什么样式？",
+          "truth": "翻领",
+          "src": "用户裁定",
+          "conf": "high",
+          "short": "翻领"
+        },
+        {
+          "id": "shoulder",
+          "q": "是否露肩？",
+          "truth": "不露肩（肩部被深蓝衣料覆盖）",
+          "src": "用户裁定",
+          "conf": "high",
+          "short": "不露肩"
+        },
+        {
+          "id": "brooch",
+          "q": "胸前有没有独立胸针？",
+          "truth": "没有（只有结扣处的高光）",
+          "src": "用户裁定",
+          "conf": "high",
+          "short": "没有"
+        },
+        {
+          "id": "apron_pocket",
+          "q": "围裙上有口袋吗？口袋上/里有什么？",
+          "truth": "有口袋，插着笔，口袋上也印鲸鱼图案",
+          "src": "规格",
+          "conf": "high",
+          "short": "有口袋，插着笔"
+        },
+        {
+          "id": "hair_style",
+          "q": "发型是什么样式？",
+          "truth": "侧编粗麻花辫（从右耳后垂到腰，末端系蓝色小蝴蝶结）",
+          "src": "规格",
+          "conf": "high",
+          "short": "侧编麻花辫"
+        },
+        {
+          "id": "hand_item",
+          "q": "手里拿着什么？请写明是哪只手，并指明参照系（画面侧 还是 角色自身侧）。",
+          "truth": "记事本 + 笔 —— 角色右手拿记事本、左手拿笔（画面左右与之相反）",
+          "src": "规格 + 用户 2026-10-02 当面纠正左右",
+          "conf": "high",
+          "short": "记事本"
+        },
+        {
+          "id": "nonhuman",
+          "q": "这个角色身上有没有非人类的特征？是什么形状？",
+          "truth": "有 —— 头两侧是鳍状耳（不是兽耳／猫耳）",
+          "src": "用户纠正 2026-10-02：模型答「兽耳」是错的",
+          "conf": "high",
+          "short": "鳍状耳"
+        },
+        {
+          "id": "socks",
+          "q": "袜子是什么样式？",
+          "truth": "白色荷叶边袜口（花边短袜）",
+          "src": "用户裁定",
+          "conf": "medium",
+          "short": "白色荷叶边短袜"
+        }
+      ]
+    },
+    {
+      "id": "cute-01",
+      "path": "testset/images/cute-01.png",
+      "label": "机房偷吃白饭（带日文告示）",
+      "category": "ocr",
+      "truth_level": "verified",
+      "facts": [
+        {
+          "id": "sign_text",
+          "q": "图中标牌上的日文文字是什么？",
+          "truth": "社内備品 食べないで！",
+          "src": "本工具读图（两次一致）",
+          "conf": "high",
+          "short": "社内備品 食べないで！"
+        },
+        {
+          "id": "scene",
+          "q": "画面里发生什么？",
+          "truth": "蓝发女仆装少女在服务器机房偷吃米饭、被撞见",
+          "src": "本工具读图",
+          "conf": "high",
+          "short": "机房偷吃白饭被撞见"
+        }
+      ]
+    }
+  ]
+}
