@@ -27,9 +27,7 @@ eye.py -- 一条命令走完整个识图流程（工具箱的统一入口）
 import argparse
 import difflib
 import json
-import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -49,8 +47,7 @@ try:
 except ImportError:
     print("need Pillow"); sys.exit(2)
 
-# 本地 OCR 是可选项：优先环境变量 TESSERACT_EXE，其次 PATH 里的 tesseract。
-TESSERACT = os.environ.get("TESSERACT_EXE") or shutil.which("tesseract") or ""
+TESSERACT = r"E:\dsh-ai\tesseract\tesseract.exe"
 
 
 # ------------------------------------------------------- global time budget
@@ -94,7 +91,7 @@ def l0_evidence(path):
     ev["colors"] = dominant_colors(im, n=6)
     ev["ocr"] = ""
     ev["ocr_note"] = ""
-    if TESSERACT and Path(TESSERACT).exists():
+    if Path(TESSERACT).exists():
         # tesseract on Windows can fail on non-ASCII paths -> work on an ASCII copy
         tmp = None
         try:
@@ -114,7 +111,7 @@ def l0_evidence(path):
                 try: Path(tmp).unlink()
                 except Exception: pass
     else:
-        ev["ocr_note"] = "未找到 tesseract（设 TESSERACT_EXE 或加入 PATH）"
+        ev["ocr_note"] = "tesseract 不在 %s" % TESSERACT
     return ev
 
 
@@ -220,7 +217,7 @@ def covers(short, long):
     阈值故意卡在**全部命中**：少一个字就不算。理由 —— 放宽到"覆盖 70-90%"会把真正的
     错误也放过：实测 `shoes` 那条模型把「金色搭扣」说成「银色金属圆扣」，字符覆盖仍有
     9/10，只有把「金」这一个字逮住才能判它错。**打分器宁可偏严**：高估模型能力会让
-    本工具在真实交付里翻车，低估只会让它多查一遍。
+    本鱼在真实交付里翻车，低估只会让它多查一遍。
 
     注意： 但**虚词不算关键信息**（2026-10-03 补）：真值「喷水的小鲸鱼」，模型答
     「有喷水孔与微笑表情的小鲸鱼」—— 只因为那一句里没有「的」字就被判错，纯属冤枉。
@@ -302,12 +299,12 @@ def build_schema_prompt(facts):
              '格式：{"<条目id>": "<你的答案>"}，例如 {"collar": "立领"}。',
              "看不清的项就把值写成「看不清」，不要猜。",
              "",
-             "四条硬要求（2026-10-02 被用户逐条纠正后加的）：",
+             "四条硬要求（2026-10-02 被饲主逐条纠正后加的）：",
              "1) **涉及左右必须写清参照系** —— 「画面左侧/右侧」跟「角色自身的左手/右手」"
              "是相反的（人物面向镜头时尤其容易搞反）。请写成「角色右手拿…」这种带参照的形式。",
              "2) **非人类的特征用准确的词** —— 看到鳍、鳍状耳、角、尾这类结构时，"
              "不要拿最接近的常见动物部位（耳／猫耳）顶替；拿不准就描述你看到的形状。",
-             "3) **专业术语照用，但后面用括号补一句白话**。用户原话：「术语看不懂是我的问题，"
+             "3) **专业术语照用，但后面用括号补一句白话**。饲主原话：「术语看不懂是我的问题，"
              "对 ai 来说肯定越准确越好啊」⇒ **不许为了好懂而降级准确性**。"
              "正确写法：「门襟（衣服前面那条从上到下的开口边）有一圈白色荷叶边（波浪形的花边）」。"
              "反过来，**也不许说没信息量的话** —— 像「四角略圆」这种，要么说清具体形状，要么别说。",
@@ -788,13 +785,13 @@ def main():
     ap.add_argument("image")
     ap.add_argument("-q", "--question", default=None)
     ap.add_argument("--preset", choices=sorted(PRESETS.keys()), default=None)
-    ap.add_argument("--models", default="dashscope,ollama",
+    ap.add_argument("--models", default="dashscope,zhipu,ollama",
                     help="默认百炼+本地。**zhipu 2026-10-03 降级为可选**：实测同一张图三次分别"
                          "返回 301 / 0 / 141 字（一次直接空响应）、耗时 37~75s，在并排里更像"
                          "噪声源。要它上就显式写 --models dashscope,zhipu,ollama")
     ap.add_argument("--out", default="")
     ap.add_argument("--no-recheck", action="store_true")
-    ap.add_argument("--recheck-models", default="dashscope,ollama",
+    ap.add_argument("--recheck-models", default="dashscope,zhipu,ollama",
                     help="复检用的模型（默认百炼+本地：一个稳、一个无限次且不 429）")
     ap.add_argument("--schema", default="",
                     help="结构化模式：用真值集里的图片 id（如 ref-a / cute-01）当答题卡，"
@@ -914,6 +911,44 @@ def main():
         except Exception as e:
             print("  分歧检测失败：%s" % str(e)[:120])
             dis = {"agreed": [], "conflicts": [], "single_source": []}
+    # ---- 程序兜底（2026-10-10 加，起因：实测报告打出 [确证]（1/1））
+    # 裁判模型（judge path）没有"单源"这个概念 ⇒ 会把只有一个模型提到的条目
+    # 塞进 agreed 桶，报告再按 support 打成 [确证] —— 而且汇总里还显示"孤证 0 项"。
+    # 这里按 support 把 1/N 的条目一律降级成孤证：单源不算确证。
+    # 单源时「一致」本身就是伪命题：实测只给一个模型（--models dashscope），
+    # 裁判却报出"模型B / 模型C"并打成 3/3 —— 来源是编的。
+    # ⇒ 真实来源 < 2 时，agreed 一律降级为孤证。
+    if len(answers) < 2:
+        for _it in dis.get("agreed", []):
+            dis.setdefault("single_source", []).append({
+                "item": _it.get("item", "?"),
+                "who": "（只有 1 个真实来源，裁判报的多源是编的）",
+                "value": _it.get("value", "")})
+        if dis.get("agreed"):
+            print("  [兜底] 本次只有 1 个模型答题：所有「一致」降级为「孤证」（单源不能算确证）")
+        dis["agreed"] = []
+        # 冲突同样需要 ≥2 个真实来源：单源时所谓的"冲突"是同一个模型被裁判拆成多份
+        for _it in dis.get("conflicts", []):
+            _cl = _it.get("claims", {})
+            dis.setdefault("single_source", []).append({
+                "item": _it.get("item", "?"),
+                "who": "（单源内部表述不一；报告里的多源是裁判编的）",
+                "value": " ｜ ".join("%s: %s" % (k, v) for k, v in _cl.items())})
+        dis["conflicts"] = []
+    _kept, _demoted = [], 0
+    for _it in dis.get("agreed", []):
+        _sup = str(_it.get("support", "")).replace(" ", "").split("/")
+        if len(_sup) == 2 and _sup[0].isdigit() and int(_sup[0]) < 2:
+            dis.setdefault("single_source", []).append({
+                "item": _it.get("item", "?"),
+                "who": "（裁判判为一致，但实际只有 %s 个来源）" % _sup[0],
+                "value": _it.get("value", "")})
+            _demoted += 1
+        else:
+            _kept.append(_it)
+    if _demoted:
+        print("  [兜底] %d 项只有一个来源，已从「一致」降级为「孤证」（单源不算确证）" % _demoted)
+    dis["agreed"] = _kept
     print("  一致 %d 项 / 冲突 %d 项 / 孤证 %d 项"
           % (len(dis.get("agreed", [])), len(dis.get("conflicts", [])),
              len(dis.get("single_source", []))))
@@ -1014,7 +1049,7 @@ def main():
             lines.append("- **[存疑·未复检] %s**：%s"
                          % (c.get("item", "?"), json.dumps(c.get("claims", {}), ensure_ascii=False)))
         lines.append("")
-        lines.append("> 这些项建议人眼裁夺，或换更强模型再问一次 —— 本工具不替它们编答案。")
+        lines.append("> 这些项建议人眼裁夺，或换更强模型再问一次 —— 本鱼不替它们编答案。")
         if skipped:
             lines.append("> 注意： **其中 %d 项根本没被复检**（受 `--max-recheck` 限制，本次上限 %d）。"
                          "要查全部就把这个值调大。" % (len(skipped), a.max_recheck))
