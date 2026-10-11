@@ -68,6 +68,8 @@ $script:Log = New-Object System.Collections.Generic.List[string]
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $script:NodeExe = 'node'
 $script:SpecChars = $null
+$script:StateTxt = $null
+$script:MarkersFatal = $false
 if ([string]::IsNullOrEmpty($LogPath)) { $LogPath = "${DshRoot}\handoff\handoff-check.log" }
 
 function Say { param([string]$s) if (-not $LogOnly) { Write-Output $s }; if ($script:Log.Count -lt 5000) { $script:Log.Add([string]$s) | Out-Null } }
@@ -396,14 +398,69 @@ function Resolve-RegistryPath {
     return [pscustomobject]@{ path = $p; exists = (Test-Path -LiteralPath $p); glob = $false }
 }
 
+# ---------------------------------------------------------------- marker integrity
+
+# The state file is sliced by regex: "<!-- STATE:X -->" ... "<!-- /STATE:X -->". A missing
+# closing marker does NOT throw -- Read-StateSection silently returns an empty string, so a
+# whole section disappears from HANDOFF.md while the run still reports "warnings: none".
+# That failure shipped twice before the gate existed, and both times a human had to notice
+# the blank section. This gate counts the eight markers: any deviation is a hard FAIL, never
+# a soft warning, and it can veto the render so a broken state file cannot overwrite
+# HANDOFF.md with a truncated version.
+#
+# Exit code 4 is the documented signal for this state (see the header comment).
+$script:MarkersFatal = $false
+
+function Test-MarkerIntegrity {
+    param([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) {
+        Say 'markers       : FAIL - state file missing or unreadable'
+        NewWarn 'state file missing or unreadable -> marker gate cannot run'
+        $script:MarkersFatal = $true
+        return
+    }
+    $bad = 0
+    foreach ($ln in ($Text -split "`r?`n")) {
+        # an inline marker quoted inside body text hijacks the section regex below
+        if ($ln -match 'STATE:' -and $ln -match '<!--' -and $ln -notmatch '^\s*<!--\s*/?STATE:[A-Z]+\s*-->\s*$') { $bad++ }
+    }
+    $found = @()
+    foreach ($k in @('STATUS', 'PENDING', 'DONE', 'SUSPENDED')) {
+        $o = ([regex]::Matches($Text, '<!--\s*STATE:' + $k + '\s*-->')).Count
+        $c = ([regex]::Matches($Text, '<!--\s*/STATE:' + $k + '\s*-->')).Count
+        if ($o -eq 1 -and $c -eq 1) { $found += $k }
+        else { Say ("markers       : FAIL - section " + $k + " has open=" + $o + " close=" + $c + " (want 1 and 1)") }
+    }
+    if ($bad -gt 0) { Say ("markers       : FAIL - " + $bad + ' inline STATE marker(s) inside body text') }
+    if ($found.Count -eq 4 -and $bad -eq 0) {
+        Say 'markers       : 8/8 OK'
+        return
+    }
+    $script:MarkersFatal = $true
+    NewWarn ('state markers broken: ' + $found.Count + '/4 sections intact, ' + $bad + ' inline marker(s) -> HANDOFF section(s) would render EMPTY')
+}
+
+# Read the state file once and keep it: the gate reads it before the collectors run, and
+# the renderer needs the same text afterwards. Reset $script:StateTxt whenever the final
+# path is known, so a cached read of a different path cannot leak into the render.
+function Get-StateTxt {
+    param([string]$Path)
+    if ([string]::IsNullOrEmpty($Path)) { return $null }
+    if ($null -eq $script:StateTxt) { $script:StateTxt = Read-TextSafe $Path }
+    return $script:StateTxt
+}
+
 # ---------------------------------------------------------------- gather
 
 $statePath = "${DshRoot}\handoff\handoff-state.md"
 $templatePath = "${DshRoot}\handoff\handoff-template.md"
+# the cached state text must belong to the FINAL path (the gate below reads it first)
+$script:StateTxt = $null
 # $LogPath already set above (script writes its own log so the scheduled task needs no redirection)
 
 Say '=== handoff check ==='
 Say ("now        : " + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+Test-MarkerIntegrity (Get-StateTxt $statePath)
 
 $node = Get-NodeFact
 Say ("node       : " + $(if ($node) { "$($node.path) $($node.version)" } else { 'NOT FOUND' }))
@@ -516,7 +573,7 @@ function Render-Template {
 function Render-Handoff {
     $tmpl = Read-TextSafe $templatePath
     if ($null -eq $tmpl) { Say "template missing: $templatePath"; return $false }
-    $stateTxt = Read-TextSafe $statePath
+    $stateTxt = Get-StateTxt $statePath
     if ($null -eq $stateTxt) { Say "state file missing: $statePath"; return $false }
 
     $txt = $tmpl
@@ -653,9 +710,17 @@ function Main {
 }
 
     if (-not $Check -and -not $Register) {
-        $ok = Render-Handoff
-        Say ''
-        Say ("render : " + $(if ($ok) { "HANDOFF.md written ($Workspace\HANDOFF.md)" } else { 'FAILED' }))
+        # The marker gate has already counted the eight section markers. A broken state file
+        # must NOT overwrite a good HANDOFF.md with a truncated one: skip the render and let
+        # the exit code below report the problem.
+        if ($script:MarkersFatal) {
+            Say ''
+            Say 'render : SKIPPED - state markers broken, HANDOFF.md left untouched'
+        } else {
+            $ok = Render-Handoff
+            Say ''
+            Say ("render : " + $(if ($ok) { "HANDOFF.md written ($Workspace\HANDOFF.md)" } else { 'FAILED' }))
+        }
     }
 
     Say ("warnings: " + $script:Warn.Count)
@@ -689,6 +754,10 @@ try {
 # $script:Warn.Count, not $exitCode, decides 2 vs 0 -- the count cannot be inflated by
 # captured output, so it is the reliable signal here. A crash is reported as 3 so that
 # "clean run" and "died before it could complain" stay distinguishable.
+#
+# Broken section markers outrank everything: the file this run just checked may be missing
+# whole sections, which is worse than any drift warning. Exit 4 is the documented signal.
 if ($fatal) { exit 3 }
+if ($script:MarkersFatal) { exit 4 }
 if ($script:Warn.Count -gt 0) { exit 2 }
 exit 0
