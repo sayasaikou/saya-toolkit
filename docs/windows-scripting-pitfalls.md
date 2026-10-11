@@ -306,4 +306,4 @@ handle64.exe /accepteula -nobanner -a -u "<关键字>"
 2. **§2.9 的 `RunLevel` 结论随部署变化**。同一台机器上，服务以提权 / 非提权启动时结论相反（本机两种情形都遇到过）。**必须每次实测目标进程的令牌**，本文不能替代判断。
 3. **§4.2 的句柄案例来自单一客户端的一个版本**，机制（长期持有系统已知文件夹的目录句柄）是否在其它版本 / 其它同类软件上成立未验证。
 4. **§5.3 的 60 秒零增长是单次观测**，不构成「凡零增长必未死」的结论 —— 只是提醒不要以单一指标下死亡判定。
-5. **本文未覆盖**：WMI / CIM 查询在目标机器上的权限差异、服务账户与交互式会话的路径解析差异（`%APPDATA%` 指向不同）、以及杀毒 / 反作弊类内核组件对脚本行为的干扰（后者见 [`../incident-notes/antivirus-rewrites-crash-dump-config.md`](../incident-notes/antivirus-rewrites-crash-dump-config.md)）。
+5. **本文未覆盖**：WMI / CIM 查询在目标机器上的权限差异、服务账户与交互式会话的路径解析差异（`%APPDATA%` 指向不同）、以及杀毒 / 反作弊类内核组件对脚本行为的干扰（后者见 [`../troubleshooting/antivirus-rewrites-crash-dump-config.md`](../troubleshooting/antivirus-rewrites-crash-dump-config.md)）。

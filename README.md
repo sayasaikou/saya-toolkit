@@ -16,7 +16,7 @@
 | [`thermal-monitor/`](thermal-monitor/) | Afterburner 共享内存读取、双烤一键监控 | 无法在不安装驱动的前提下批量获取传感器数据；压力测试缺乏自动化收尾与安全边界 |
 | [`blender-headless/`](blender-headless/) | Blender 无头渲染脚本集说明 | 批量多视角渲染与材质问题定位依赖手工操作 |
 | [`comfy-pipeline/`](comfy-pipeline/) | ComfyUI 批量出图与提示词生成 | 多底模调用方式不统一；生成结果趋于同质化（固定站姿、背景单一） |
-| [`incident-notes/`](incident-notes/) | 故障复盘（根因分析） | 同类故障的复现与定位成本 |
+| [`troubleshooting/`](troubleshooting/) | 故障记录（问题 / 原因 / 方法 / 结果） | 同类故障的识别与定位成本 |
 | [`docs/`](docs/) | 收录范围、脱敏规则、跨引擎与脚本约束、仓库审计记录 | 说明哪些内容适合公开、哪些必须保留在私有环境；把踩过的平台坑固化成规则 |
 
 ## 组件说明
