@@ -44,7 +44,7 @@ Windows 上同时存在两个 PowerShell：
 | `Import-PowerShellDataFile -AsHashtable` | 有该参数 | **无该参数** | `NamedParameterNotFound` |
 | `ForEach-Object -Parallel` | 支持 | **不支持** | 参数集无法解析（`AmbiguousParameterSet`） |
 
-> 注意： **两条常见误传的更正（本次实测）**：
+> **两条常见误传的更正（本次实测）**：
 > - `[Type]::new()` **不是 PS7 专有语法** —— `::new()` 自 PowerShell 5.0 起可用，5.1 实测通过（`[System.Collections.Generic.List[string]]::new()` 两引擎均 exit=0）。
 > - `clean { }` 也**不是**独立语句 —— 它只在 PS7 的 `ForEach-Object -Parallel` 内部有意义。独立写 `clean { 1 }`，**两个引擎都报 `CommandNotFoundException`**（5.1 只是不支持 `-Parallel` 这个参数）。
 
@@ -198,7 +198,7 @@ pwsh            -NoProfile -File check-parse.ps1 -ListFile <UTF8清单>
 powershell.exe  -NoProfile -File check-parse.ps1 -ListFile <UTF8清单>
 ```
 
-### 规则 4：注意： 用正则扫「PS7 专有构造」会假阳性
+### 规则 4：用正则扫「PS7 专有构造」会假阳性
 
 **字符串内容是数据，不是代码。** 一个补丁脚本里出现 `??=`，很可能它只是**被写入目标文件的 JS 补丁正文**（位于引号或 here-string 内部），与 PowerShell 语法毫无关系。按正则命中就判定「此脚本 5.1 下必炸」会误报。
 
@@ -240,7 +240,7 @@ if ($useHttpClient) {
 }
 ```
 
-### 5.2 注意： PS7 的证书校验回调不能用脚本块
+### 5.2 PS7 的证书校验回调不能用脚本块
 
 **PS7 的证书校验回调在 TLS 握手线程上执行 —— 那里没有 runspace**，用脚本块赋值会抛「此线程中没有可用于运行脚本的运行空间」。必须用 `Add-Type` 编译出**真委托**：
 
@@ -324,7 +324,7 @@ $s = 'abc'; $S = @('l1','l2')  →  $s 变成 array，原值 'abc' 被覆盖
 | 计划任务 `Result = 1` | 与第 3 节的解析失败**症状相同** |
 | **所有日志文件都不生成** | 与第 3 节同样的一致特征 |
 
-注意： **「`Result=1` 且没有任何日志」是一个复合指纹**，它同时对应至少三种病：中文编码解析失败、只读变量被覆盖、以及任何「第一行之前就死掉」的原因。排查时**按这三条依次过一遍**，不要只查一条就收工。
+**「`Result=1` 且没有任何日志」是一个复合指纹**，它同时对应至少三种病：中文编码解析失败、只读变量被覆盖、以及任何「第一行之前就死掉」的原因。排查时**按这三条依次过一遍**，不要只查一条就收工。
 
 ---
 
