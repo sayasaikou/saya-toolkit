@@ -47,7 +47,11 @@ try:
 except ImportError:
     print("need Pillow"); sys.exit(2)
 
-TESSERACT = r"E:\dsh-ai\tesseract\tesseract.exe"
+# Local OCR engine: configure via env var, or leave empty to use PATH.
+TESSERACT = os.environ.get("TESSERACT_EXE", "")
+if not TESSERACT:
+    _found = shutil.which("tesseract")
+    TESSERACT = _found or ""
 
 
 # ------------------------------------------------------- global time budget
