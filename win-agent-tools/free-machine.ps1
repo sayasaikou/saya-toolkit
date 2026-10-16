@@ -1,40 +1,11 @@
-# free-machine.ps1 -- one-shot cleanup: hand the GPU back to whoever needs the machine.
-#
-# WHY THIS EXISTS
-#   A resident image/video server and a loaded LLM both hold VRAM that nothing else can
-#   use. When you want to PLAY a game or run your own work, "close that thing" is not
-#   obvious: there are three separate holders and only one of them is a visible window.
+# free-machine.ps1 -- one-shot cleanup for when the owner needs the machine (2026-10-10)
 #
 # Does exactly three things:
-#   1. stops the image server (ComfyUI)
-#   2. unloads any model loaded in ollama (the service itself is left running)
-#   3. stops this assistant's own python workers
-#
-# NEVER touches: the assistant host itself, anything the owner started, the ollama service,
-# any process whose command line does not match the configured pattern.
-#
-# ASCII ONLY (runs under either PowerShell engine).
-#
-# Exit codes: 0 = cleanup ran (per-item results are printed; a failed stop is reported,
-#                 not fatal -- a partly cleaned machine is still better than none)
-
-param(
-    # Image server port.
-    [int]$ComfyPort = 8188,
-
-    # ollama port (its model list and unload endpoints).
-    [int]$OllamaPort = 11434,
-
-    # Command-line regex identifying the assistant's own python workers.
-    # Empty = skip step 3 entirely.
-    [string]$OwnPythonPattern = 'comfy-tools|dsh-ai|vision-tools',
-
-    # Report what would be stopped without stopping anything.
-    [switch]$DryRun,
-
-    # Seconds to wait between stopping and measuring VRAM again.
-    [int]$SettleSeconds = 3
-)
+#   1. stops ComfyUI
+#   2. unloads any model loaded in ollama (service itself is left alone)
+#   3. kills this assistant's own python workers
+# Never touches: DSH itself, anything the owner started, the ollama service.
+# ASCII ONLY (runs under either engine).
 
 $ErrorActionPreference = 'Continue'
 
@@ -44,72 +15,63 @@ function Get-VramUsed {
     return -1
 }
 
-function Get-ListenerPid([int]$P) {
-    $c = Get-NetTCPConnection -LocalPort $P -State Listen -ErrorAction SilentlyContinue
+function Get-ListenerPid([int]$Port) {
+    $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if ($c) { return [int]$c[0].OwningProcess }
     return 0
 }
 
 $before = Get-VramUsed
-Write-Output ("VRAM before : {0} MiB" -f $before)
-Write-Output ''
+Write-Host ("VRAM before : {0} MiB" -f $before)
+Write-Host ''
 
-# ---- 1) image server ----
-$srvPid = Get-ListenerPid $ComfyPort
-if ($srvPid -ne 0) {
-    if ($DryRun) { Write-Output ("  [--] would stop image server pid {0}" -f $srvPid) }
-    else {
-        Stop-Process -Id $srvPid -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        # read back: a stop that did not throw is not proof the port was released
-        if ((Get-ListenerPid $ComfyPort) -eq 0) { Write-Output '  [ok] image server stopped' }
-        else { Write-Output '  [!!] image server is still listening' }
-    }
+# ---- 1) ComfyUI ----
+$comfyProcId = Get-ListenerPid 8188
+if ($comfyProcId -ne 0) {
+    Stop-Process -Id $comfyProcId -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    if ((Get-ListenerPid 8188) -eq 0) { Write-Host '  [ok] ComfyUI stopped' }
+    else { Write-Host '  [!!] ComfyUI is still listening' }
 } else {
-    Write-Output '  [--] image server was not running'
+    Write-Host '  [--] ComfyUI was not running'
 }
 
-# ---- 2) ollama loaded models (service stays up) ----
-if ((Get-ListenerPid $OllamaPort) -ne 0) {
+# ---- 2) ollama loaded models ----
+if ((Get-ListenerPid 11434) -ne 0) {
     try {
-        $loaded = Invoke-RestMethod -Uri "http://127.0.0.1:$OllamaPort/api/ps" -TimeoutSec 8
+        $loaded = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/ps' -TimeoutSec 8
         if ($loaded.models.Count -gt 0) {
             foreach ($m in $loaded.models) {
-                if ($DryRun) { Write-Output ("  [--] would unload ollama model: {0}" -f $m.name); continue }
                 $body = '{"model":"' + $m.name + '","keep_alive":0}'
-                Invoke-RestMethod -Uri "http://127.0.0.1:$OllamaPort/api/generate" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 30 | Out-Null
-                Write-Output ("  [ok] ollama model unloaded: {0}" -f $m.name)
+                Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/generate' -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 30 | Out-Null
+                Write-Host ("  [ok] ollama model unloaded: {0}" -f $m.name)
             }
         } else {
-            Write-Output '  [--] ollama: no model loaded'
+            Write-Host '  [--] ollama: no model loaded'
         }
     } catch {
-        Write-Output '  [!!] ollama request failed'
+        Write-Host '  [!!] ollama request failed'
     }
 } else {
-    Write-Output '  [--] ollama service is not running'
+    Write-Host '  [--] ollama service is not running'
 }
 
-# ---- 3) the assistant's own python workers ----
-if ($OwnPythonPattern) {
-    $killed = 0
-    try {
-        $own = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
-                 Where-Object { $_.CommandLine -match $OwnPythonPattern })
-        foreach ($p in $own) {
-            if ($DryRun) { Write-Output ("  [--] would kill python pid {0}" -f $p.ProcessId); $killed++; continue }
-            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
-            Write-Output ("  [ok] stopped python pid {0}" -f $p.ProcessId)
-            $killed++
-        }
-        if ($killed -eq 0) { Write-Output '  [--] no matching python worker was running' }
-    } catch { }
-}
+# ---- 3) assistant's own python workers ----
+$killed = 0
+try {
+    $own = @(Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+             Where-Object { $_.CommandLine -match 'comfy-tools|dsh-ai|vision-tools' })
+    foreach ($p in $own) {
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        Write-Host ("  [ok] killed python pid {0}" -f $p.ProcessId)
+        $killed++
+    }
+    if ($killed -eq 0) { Write-Host '  [--] no assistant python was running' }
+} catch { }
 
-Start-Sleep -Seconds $SettleSeconds
+Start-Sleep -Seconds 3
 $after = Get-VramUsed
-Write-Output ''
-Write-Output ("VRAM after  : {0} MiB" -f $after)
-if ($before -gt 0 -and $after -gt 0) { Write-Output ("freed       : {0} MiB" -f ($before - $after)) }
-Write-Output 'Done. The assistant host was not touched.'
-exit 0
+Write-Host ''
+Write-Host ("VRAM after  : {0} MiB" -f $after)
+if ($before -gt 0 -and $after -gt 0) { Write-Host ("freed       : {0} MiB" -f ($before - $after)) }
+Write-Host 'Done. DSH itself was not touched.'

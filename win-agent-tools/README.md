@@ -140,3 +140,8 @@ pwsh -NoProfile -File .\html-shot.ps1 -Html ".\report.html" -Out ".\report.png" 
 ## 许可
 
 MIT。
+
+| `ctx-audit.mjs` | 量一次真实请求的上下文组成（工具 schema / 指令链 / 技能目录各占多少 token），用于定位上下文开销 |
+| `sync-budget-preset.mjs` | 把随包内置的 preset 整份照抄进 profile patch、只替换预算字段一行；用于避免升级后手工抄写漂移 |
+| `reap-producers.ps1` | 闲置回收：只回收能观测忙/闲状态的服务（有空闲查询接口的），空闲达阈值即停；不可观测的服务不纳入 |
+| `free-machine.ps1` | 让路脚本：需要机器时停生成服务、卸载已载入模型、回收本工具链自己的进程；不碰宿主应用与他人启动的进程 |

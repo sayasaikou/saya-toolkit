@@ -1,28 +1,22 @@
 #!/usr/bin/env node
 // sync-budget-preset.mjs
 // ---------------------------------------------------------------------------
-// Keep the DSH-BUDGET-OVERRIDE block in the profile patch in sync with the
-// standard preset that ships inside the package. Exactly one value is changed:
-// agent-instructions.maxBytes.
+// 把「随包内置的 standard preset」同步成 profile patch 里的 DSH-BUDGET-OVERRIDE 块，
+// 全程只改一处：agent-instructions.maxBytes。
 //
-// WHY THIS EXISTS:
-//   Upstream documents that a user override REPLACES the whole sub-plugin list and does
-//   NOT merge future changes to the builtin list. That list can change on any release,
-//   and copying it by hand drifts: it has silently gone stale once, and a hand-copied
-//   block turned a `|` block scalar into `>` -- which changes how a multi-line prompt is
-//   folded even though the text looks the same.
+// 为什么要它：官方文档明确写着 ——
+//   「用户覆盖替换完整子插件列表，不自动合并内置列表的未来更新。」
+// 每轮 DSH 升级后内置列表可能变，人手抄必然漂移：
+//   2026-09-28 就因为旧写法打空过一次；同日又发现块里把内置的 `|` 块标量
+//   抄成了 `>`，plan-mode 提示词的换行结构跟内置不一致。
+// 本脚本的做法是「整份照抄 + 只替换一行」，任何内置变化都会自动跟随。
 //
-//   So this copies the whole block verbatim and rewrites ONLY the maxBytes line, and any
-//   upstream change is carried over instead of being missed.
-//
-// USAGE:
-//   node sync-budget-preset.mjs            # dry run: print the diff, write nothing
-//   node sync-budget-preset.mjs -Apply     # write (backup + read-back verification)
+// 用法：
+//   node sync-budget-preset.mjs            # 干跑：只打印差异，不写文件
+//   node sync-budget-preset.mjs -Apply     # 写入（自动备份 + 回读校验）
 //   node sync-budget-preset.mjs -Apply -MaxBytes 262144
-//   node sync-budget-preset.mjs --brief    # single RESULT line, for callers
-// Exit codes: 0 = identical / written | 2 = differences (dry run) | 1 = error
+// 退出码：0 = 一致 / 已写入；2 = 有差异（干跑模式）；1 = 出错
 // ---------------------------------------------------------------------------
-
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -70,8 +64,7 @@ try {
   }
 } catch {}
 
-// ---- 1. read the builtin, take the preset declaration and strip the `- insert:` wrapper ----
-// (every line of the wrapped block is indented by 4 spaces)
+// ---- 1. 读内置，取出 preset 声明并去掉 `- insert:` 包裹（每行减 4 空格）----
 const raw = fs.readFileSync(BUILTIN, 'utf8');
 const nl = raw.includes('\r\n') ? '\r\n' : '\n';
 const srcLines = raw.split(/\r?\n/);
@@ -82,7 +75,7 @@ while (body.length && body[body.length - 1].trim() === '') body.pop();
 let decl = body.map((l) => (l.startsWith('    ') ? l.slice(4) : l));
 if (!decl[0] || !decl[0].startsWith('- id:')) die('unexpected shape after de-indent: ' + JSON.stringify(decl[0]));
 
-// ---- 2. rewrite the maxBytes line only ----
+// ---- 2. 只替换 maxBytes 那一行 ----
 let hits = 0;
 let builtinMax = null;
 decl = decl.map((l) => {
@@ -94,10 +87,9 @@ decl = decl.map((l) => {
 });
 if (hits !== 1) die('expected exactly 1 maxBytes line in builtin preset, found ' + hits);
 
-// ---- 3b. self-check: restoring maxBytes must make the block line-identical to the builtin ----
-// This is the core guarantee of the tool. If upstream changes the format (scalar style,
-// indentation, a new key), the mechanical transform could silently emit a wrong block --
-// so refuse to write instead of writing and finding out after a restart.
+// ---- 3b. 自检：把 maxBytes 还原回内置值后，必须与内置体逐行全等 ----
+// 这是本工具的核心保证：万一上游改了格式（换标量风格 / 换缩进 / 加新键），
+// 机械变换就可能悄悄产出错块 —— 这里直接拒绝写入，而不是写进去等重启才炸。
 {
   const biBody = body.map((l) => (l.startsWith('    ') ? l.slice(4) : l)).filter((l) => l.trim() !== '');
   const back = decl.map((l) => l.replace(/^(\s*)maxBytes:\s*\d+\s*$/, '$1maxBytes: ' + builtinMax));
@@ -108,22 +100,20 @@ if (hits !== 1) die('expected exactly 1 maxBytes line in builtin preset, found '
   if (bad !== 0) die('self-check FAILED: de-indented block differs from builtin in ' + bad + ' line(s) - upstream format changed, refusing to write');
   say('self-check: de-indent round-trip is line-identical to builtin (' + biBody.length + ' lines); the only change is maxBytes ' + builtinMax + ' -> ' + MAX_BYTES);
 }
-// ---- 3. assemble the new block ----
+// ---- 3. 组装新块 ----
 const header = [
   MARK_A + ' (managed by sync-budget-preset.mjs - do NOT hand-edit this block)',
-  '# source: the builtin presets/standard.patch.yml of the installed host @' + dshVer,
-  '# regenerate: node ' + path.join(DSH_HOME, 'sync-budget-preset.mjs') + ' -Apply  |  dry run: drop -Apply',
-  '# why: the builtin agent-instructions budget is smaller than a typical combined',
-  '#   global + workspace AGENTS.md. The mechanism resolves the overflow by keeping the',
-  '#   more specific workspace copy and DROPPING the global one entirely -- no error, no',
-  '#   crash, the rules are simply not in effect. That failure mode has been observed.',
-  '# rollback: delete the whole block to fall back to the builtin value. Restart the',
-  '#   service and open a new session before the change is observable.',
+  '# 来源：dsh-web-app@' + dshVer + ' presets/standard.patch.yml（整份照抄，只改下面那一行 maxBytes）',
+  '# 重新生成：node ' + path.join(DSH_HOME, 'sync-budget-preset.mjs') + ' -Apply　｜　干跑（只看差异）：去掉 -Apply',
+  '# 为什么：全局 + 工作区两份 AGENTS.md 合计约 145 KB，随包 65536 装不下，',
+  '#   而机制的取舍是「保住更具体的工作区那份、把全局那份整份丢掉」——不报错、不崩溃，',
+  '#   只是规则写了却看不见（2026-09-17 踩过）。',
+  '# 回滚：整块删掉即退回随包 65536（改完要重启服务 + 开新会话才验证得到）。',
 ];
-// note: the final block is header + decl + MARK_B, written with the patch file own EOL.
+// 注：块的最终形态 = header + decl + MARK_B，按 patch 文件自己的行尾写回。
 
-// ---- 4. compare with the current state ----
-// The verbose report goes through say(); under --brief only the exit hook prints.
+// ---- 4. 与现状比对 ----
+// 详细报告走 say()：--brief 下只有 process.on('exit') 那一行 RESULT。
 const patchRaw = fs.readFileSync(PATCH, 'utf8');
 const pnl = patchRaw.includes('\r\n') ? '\r\n' : '\n';
 const pLines = patchRaw.split(/\r?\n/);
@@ -163,7 +153,7 @@ process.on('exit', (code) => {
 if (diff === 0 && blockSame) process.exit(0);
 if (!APPLY) { exitCode = 2; say('(dry-run: nothing written. add -Apply to write)'); process.exit(2); }
 
-// ---- 5. write: backup + replace + read back ----
+// ---- 5. 写入：备份 + 替换 + 回读 ----
 const stamp = fmtStamp(new Date());
 exitCode = 0;
 exitMsg = 'override block rewritten' + (diff ? ' (' + diff + ' line(s) updated)' : ' (header refreshed only)');
@@ -172,7 +162,7 @@ fs.copyFileSync(PATCH, bkp);
 const rebuilt = pLines.slice(0, a).concat(newLinesArr, pLines.slice(b + 1)).join(pnl);
 fs.writeFileSync(PATCH, rebuilt, 'utf8');
 
-// ---- 6. read-back verification ----
+// ---- 6. 回读校验 ----
 const after = fs.readFileSync(PATCH, 'utf8').split(/\r?\n/);
 const a2 = after.findIndex((l) => l.startsWith(MARK_A));
 const b2 = after.findIndex((l) => l.startsWith(MARK_B));

@@ -1,29 +1,19 @@
-// ctx-audit -- measure what one real request is actually made of
+#!/usr/bin/env node
+// ctx-audit —— 量一次真实请求的上下文组成（本机 V4 会话日志）
 //
-// WHAT IT READS (and why each source is trusted or not):
-//   * request/header.tools  = the exact tool schemas the host sent to the provider.
-//                             Byte-exact; no estimation involved.
-//   * prompt total          = the provider-reported usage (inputTokens + cacheReadTokens).
-//   * per-block shares      = two density models, because a tokenizer is not available here:
-//                             A = the host token-meter heuristic (~4 chars per token),
-//                             B = CJK at 1.5 chars/token and ASCII at 4.
-//                             After calibrating against the measured total, the two usually
-//                             land within 10% of each other. Density is a heuristic, NOT
-//                             tokenizer truth -- cross-check with the host context panel.
+// 口径说明（重要，别混）：
+//   · request/header 里的 tools 数组 = 宿主真正发给 provider 的完整 schema，逐字节可信。
+//   · prompt 总量用 provider 实测 usage（inputTokens + cacheReadTokens）。
+//   · 各块占比用双模型：A = 官方 dsh-token-meter 的固定密度（约 4 字符 ≈ 1 token）；
+//     B = 中文按 1.5 字符/token、ASCII 按 4 —— 与实测对账后误差通常在 10% 内。
+//   · 密度是启发式，不是分词器真值；要交叉验证就开一次 /context 面板看官方数字。
 //
-// WHY THE CALIBRATION FACTOR EXISTS:
-//   The official heuristic systematically UNDERCOUNTS CJK blocks (fewer characters, more
-//   tokens each), so a raw character-based estimate is biased low on exactly the blocks
-//   worth measuring. Calibrating against the provider usage removes most of that bias.
-//
-// USAGE:
-//   node ctx-audit.mjs                       # newest session
-//   node ctx-audit.mjs --session <id>        # a specific session
-//   node ctx-audit.mjs --file <path.jsonl>   # an already-decompressed jsonl
-//   node ctx-audit.mjs --tools-top 25        # tool leaderboard length (default 15)
-//   node ctx-audit.mjs --history             # the whole-session accumulation account
-//
-// Exit codes: 0 = reported | 2 = no request/header in that session | 1 = error
+// 用法：
+//   node ctx-audit.mjs                       # 自动取最近一次会话
+//   node ctx-audit.mjs --session <id>        # 指定会话
+//   node ctx-audit.mjs --file <path.jsonl>   # 直接给解压后的 jsonl
+//   node ctx-audit.mjs --tools-top 25        # 工具榜长度（默认 15）
+
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
@@ -36,7 +26,7 @@ function arg(name, dflt) {
   return i === -1 ? dflt : process.argv[i + 1];
 }
 
-// ---- locate the log file ----
+// ---- 取日志文件 ----------------------------------------------------------
 function newestSessionFile() {
   const out = [];
   const walk = (dir) => {
@@ -71,13 +61,13 @@ function resolveFile() {
       return null;
     };
     const f = walk(SESSIONS);
-    if (!f) throw new Error('session not found: ' + want);
+    if (!f) throw new Error('未找到会话: ' + want);
     return f;
   }
   return newestSessionFile();
 }
 
-// ---- multi-frame zstd decompression ----
+// ---- 多帧 zstd 解压 -----------------------------------------------------
 function readSession(path) {
   const buf = readFileSync(path);
   const magic = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
@@ -88,12 +78,12 @@ function readSession(path) {
   const chunks = [];
   for (let k = 0; k < starts.length - 1; k++) {
     try { chunks.push(zstdDecompressSync(buf.subarray(starts[k], starts[k + 1]))); }
-    catch { /* trailing partial frame, ignore */ }
+    catch { /* 尾部半帧，忽略 */ }
   }
   return Buffer.concat(chunks).toString('utf8');
 }
 
-// ---- split out one request ----
+// ---- 拆一次请求 ---------------------------------------------------------
 function firstRequest(lines) {
   let header = null, sysMsg = null, usage = null, context = null;
   const userMsgs = [];
@@ -121,21 +111,21 @@ const textOf = (m) => (Array.isArray(m.content) ? m.content.map((b) => b.text ??
 const classify = (o) => {
   const t = textOf(o.data);
   const c = count(JSON.stringify(o.data));
-  if (/Instructions from:|# Workspace Instructions|# Global Instructions/.test(t)) return ['instruction files (AGENTS.md)', c];
-  if (t.includes('A skill is a reusable set')) return ['skill catalog', c];
-  if (/^#\\s*Persona|PERSONA_SPEC/.test(t)) return ['persona spec', c];
-  if (t.includes('relationship memory')) return ['relationship memory', c];
-  if (t.includes('Current runtime context')) return ['runtime snapshot', c];
-  if (t.includes('Time sampled while preparing')) return ['clock sample', c];
-  return c.n < 400 ? ['user message body', c] : ['other injection', c];
+  if (/Instructions from:|# 用户全局约定|# 本工作区说明/.test(t)) return ['指令文件 AGENTS.md', c];
+  if (t.includes('A skill is a reusable set')) return ['技能目录', c];
+  if (t.includes('行为规格')) return ['人格规格 PERSONA_SPEC', c];
+  if (t.includes('关系记忆')) return ['关系记忆', c];
+  if (t.includes('Current runtime context')) return ['运行期快照', c];
+  if (t.includes('Time sampled while preparing')) return ['时间戳采样', c];
+  return c.n < 400 ? ['用户消息本体', c] : ['其它注入', c];
 };
 
-// ---- main ----
+// ---- 主流程 -------------------------------------------------------------
 const file = resolveFile();
 const text = readSession(file);
 const lines = text.split('\n').filter((l) => l.trim());
 const { header, sysMsg, usage, context, userMsgs } = firstRequest(lines);
-if (!header) { console.error('no request/header in this session (no request issued yet?)'); process.exit(2); }
+if (!header) { console.error('这个会话里没有 request/header（可能还没起过请求）'); process.exit(2); }
 
 const bucket = new Map();
 const add = (k, c) => {
@@ -145,19 +135,19 @@ const add = (k, c) => {
 };
 
 const tools = header.tools ?? [];
-
-if (sysMsg) add('system prompt', count(JSON.stringify(sysMsg)));
+add(`工具 schema (${tools.length} 个)`, count(JSON.stringify(tools)));
+if (sysMsg) add('系统提示 system', count(JSON.stringify(sysMsg)));
 for (const o of userMsgs) { const [k, c] = classify(o); add(k, c); }
-
-
-const DUP_GUARD = ['instruction files (AGENTS.md)', 'relationship memory', 'persona spec'];
+// ⚠️ 兜底纠正：分类按"含关键词"判，长会话里助手正文/工具结果也会提到这些词 ⇒ 同一类只认真实注入的那一份
+// （判据：该类出现多份时取最小那两份里更小的一份——真实注入是完整一份，其余多半是引用）
+const DUP_GUARD = ['指令文件 AGENTS.md', '关系记忆', '人格规格 PERSONA_SPEC'];
 for (const key of DUP_GUARD) {
   const cur = bucket.get(key);
   if (!cur) continue;
   const sizes = userMsgs.map((o) => { const [k, c] = classify(o); return k === key ? c : null; }).filter(Boolean);
   if (sizes.length <= 1) continue;
   sizes.sort((a, b) => b.n - a.n);
-
+  // 真实注入是"一次完整注入"：取最大那份为基准，其余视为重复/引用 ⇒ 只留一份
   const keep = sizes[0];
   bucket.set(key, keep);
 }
@@ -171,36 +161,36 @@ const k = actual > 0 ? actual / sumB : 1;
 
 console.log('ctx-audit  ' + new Date().toISOString().replace('T', ' ').slice(0, 19));
 console.log('session    : ' + file);
-console.log('events     : ' + lines.length + ' lines');
-if (context) console.log('model/window: ' + context.provider + ' / ' + context.model + '  window ' + context.contextWindow);
-if (usage) console.log('measured usage: input ' + usage.inputTokens + ' + cacheRead ' + usage.cacheReadTokens + ' = prompt ' + actual + ' token ｜ output ' + usage.outputTokens);
+console.log('events     : ' + lines.length + ' 行');
+if (context) console.log('模型/窗口  : ' + context.provider + ' / ' + context.model + '  window ' + context.contextWindow);
+if (usage) console.log('实测 usage : input ' + usage.inputTokens + ' + cacheRead ' + usage.cacheReadTokens + ' = prompt ' + actual + ' token ｜ output ' + usage.outputTokens);
 
-
-
+console.log('\n=== 组成（按模型 B 估算，已用实测总量校准）===');
+console.log('组件'.padEnd(26) + '字符'.padStart(8) + '非ASCII'.padStart(9) + '≈token'.padStart(8) + '占比'.padStart(8));
 for (const [kk, c] of [...bucket].sort((a, b) => estB(b[1]) - estB(a[1]))) {
   const tk = (estB(c) - ROLE) * k;
   console.log(kk.padEnd(26) + String(c.n).padStart(8) + ((c.nonAscii / c.n) * 100).toFixed(0).padStart(8) + '%' + String(Math.round(tk)).padStart(8) + ((tk / (sumB * k)) * 100).toFixed(1).padStart(7) + '%');
 }
-console.log('total'.padEnd(26) + String(tot.n).padStart(8) + ((tot.nonAscii / tot.n) * 100).toFixed(0).padStart(8) + '%' + String(Math.round(sumB * k)).padStart(8));
+console.log('合计'.padEnd(26) + String(tot.n).padStart(8) + ((tot.nonAscii / tot.n) * 100).toFixed(0).padStart(8) + '%' + String(Math.round(sumB * k)).padStart(8));
+console.log(`\n对账：模型A（官方 4 字符/token）${sumA} ｜ 模型B（中文 1.5）${sumB} ｜ 实测 ${actual} ⇒ 校准系数 ${k.toFixed(3)}`);
+console.log('注：官方启发式会把中文块系统性低估（中文字符少、token 多），故 dashboard 的 systemTokens/toolsTokens 偏保守。');
 
-console.log('note: the official heuristic undercounts CJK blocks, so its systemTokens/toolsTokens read low on CJK-heavy prompts.');
-
-// tool leaderboard
+// 工具榜
 const top = Number(arg('tools-top', '15'));
 if (tools.length) {
   const per = tools.map((t) => {
     const c = count(JSON.stringify(t));
     return [t.name, (estB(c) - ROLE) * k, (c.nonAscii / c.n) * 100];
   }).sort((a, b) => b[1] - a[1]);
-
-  for (const [n, tk, r] of per.slice(0, top)) console.log(String(Math.round(tk)).padStart(6) + '  ' + n.padEnd(26) + `non-ASCII ${r.toFixed(0)}%`);
-  console.log('tools total ~ ' + Math.round(per.reduce((s, x) => s + x[1], 0)) + ' token');
+  console.log(`\n=== 工具榜 top ${top}（≈token） ===`);
+  for (const [n, tk, r] of per.slice(0, top)) console.log(String(Math.round(tk)).padStart(6) + '  ' + n.padEnd(26) + `非ASCII ${r.toFixed(0)}%`);
+  console.log('工具合计 ≈ ' + Math.round(per.reduce((s, x) => s + x[1], 0)) + ' token');
 }
 
-// ---- --history: how the context grew over the whole session ----
+// ---- --history：整个会话的「历史累积」账（上下文怎么长起来的）----------
 if (process.argv.includes('--history')) {
-
-
+  const byTool = new Map();   // 工具名 -> { calls, chars }
+  const bucket2 = new Map();  // 事件类 -> chars
   let calls = 0, results = 0;
   for (const l of lines) {
     let o; try { o = JSON.parse(l); } catch { continue; }
@@ -213,7 +203,7 @@ if (process.argv.includes('--history')) {
         const cur = byTool.get(name) ?? { calls: 0, chars: 0 };
         cur.calls++; cur.chars += c;
         byTool.set(name, cur);
-        add2('tool call arguments');
+        add2('工具调用参数');
         break;
       }
       case 'tool/result': {
@@ -222,23 +212,24 @@ if (process.argv.includes('--history')) {
         const cur = byTool.get(name) ?? { calls: 0, chars: 0 };
         cur.chars += c;
         byTool.set(name, cur);
-        add2('tool results (the bulk)');
+        add2('工具结果（重活在这儿）');
         break;
       }
-      case 'assistant/message': add2('assistant replies (incl. thinking)'); break;
-      case 'user/message': add2('user messages and injections'); break;
-      case 'system/message': add2('system messages'); break;
+      case 'assistant/message': add2('助手回复（含思考）'); break;
+      case 'user/message': add2('用户消息与注入'); break;
+      case 'system/message': add2('系统消息'); break;
       default: break;
     }
   }
   const totChars = [...bucket2.values()].reduce((a, b) => a + b, 0);
-
-
-  console.log(`events: tool calls ${calls} / tool results ${results} | accumulated chars ${totChars}`);
-  console.log('category'.padEnd(24) + 'chars'.padStart(10) + 'share'.padStart(8));
+  const totTok = estB({ n: totChars, ascii: 0, nonAscii: 0 }) - ROLE; // 上界：全按中文密度
+  console.log('\n=== 会话历史累积（整个会话，不只是首轮）===');
+  console.log(`事件：工具调用 ${calls} 次 / 工具结果 ${results} 条 ｜ 累积字符 ${totChars}`);
+  console.log('类别'.padEnd(24) + '字符'.padStart(10) + '占比'.padStart(8));
   for (const [kk, v] of [...bucket2].sort((a, b) => b[1] - a[1]))
     console.log(kk.padEnd(24) + String(v).padStart(10) + ((v / totChars) * 100).toFixed(1).padStart(7) + '%');
-  console.log('\n--- per tool (results + arguments, char count desc) ---');
+  console.log('\n--- 按工具（结果＋参数，字符数降序）---');
   for (const [n, v] of [...byTool].sort((a, b) => b[1].chars - a[1].chars).slice(0, 15))
-    console.log(String(v.chars).padStart(9) + `  ${n.padEnd(22)} ${v.calls} calls`);
+    console.log(String(v.chars).padStart(9) + `  ${n.padEnd(22)} ${v.calls} 次`);
 }
+
