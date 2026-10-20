@@ -27,7 +27,9 @@ eye.py -- 一条命令走完整个识图流程（工具箱的统一入口）
 import argparse
 import difflib
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
