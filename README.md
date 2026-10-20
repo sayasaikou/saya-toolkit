@@ -24,7 +24,7 @@
 | [`snapshot-tools/`](snapshot-tools/) | 环境快照的拍摄与还原（默认干跑、写入前自动另存） | 需要一份可整体回退的「当前环境存档」，且还原必须可预防、可演练 |
 | [`thermal-monitor/`](thermal-monitor/) | Afterburner 共享内存读取、双烤一键监控 | 无法在不安装驱动的前提下批量获取传感器数据；压力测试缺乏自动化收尾与安全边界 |
 | [`blender-headless/`](blender-headless/) | Blender 无头渲染脚本集说明 | 批量多视角渲染与材质问题定位依赖手工操作 |
-| [`blender-mmd/`](blender-mmd/) | MMD 模型导入、Blender 布光渲染、ComfyUI 分区 img2img 的完整链路 | MMD 的几何准确但材质是 toon；纯提示词出图又拿不到可控的相机与光影。两段拆开才能同时拿到结构与材质 |
+| [saya-blender-ai](https://github.com/sayasaikou/saya-blender-ai)（独立仓） | MMD 导入、Blender 布光、深度图、分区 img2img | 该链路已独立成仓，本仓不再维护副本 |
 | [`comfy-pipeline/`](comfy-pipeline/) | ComfyUI 批量出图与提示词生成 | 多底模调用方式不统一；生成结果趋于同质化（固定站姿、背景单一） |
 | [`troubleshooting/`](troubleshooting/) | 故障记录（问题 / 原因 / 方法 / 结果） | 同类故障的识别与定位成本 |
 | [`docs/`](docs/) | 收录范围、脱敏规则、跨引擎与脚本约束、依赖升级模式、仓库审计记录 | 说明哪些内容适合公开、哪些必须保留在私有环境；把踩过的平台坑固化成规则 |
@@ -80,11 +80,7 @@ L4 汇总报告   带证据等级，被时间预算砍掉的步骤显式标注�
 
 ### blender-mmd
 
-把 MMD 模型接进 AI 出图流程：Blender（EEVEE）负责几何、相机、布光与阴影，ComfyUI img2img 只做低 denoise 重绘，负责材质与画风。
-
-核心取舍写在 `blender-mmd/README.md`，最要紧的三条：**保身份与提画风共用 denoise 这一个旋钮**（链式低 denoise 保得住身份但提不上画风）；**分区 mask 是唯一能把两者拆开的旋钮**（只锁脸，不锁头发与兽耳）；**ControlNet 用 lineart 不用 tile**（tile 会把色块锁进去，改脸、发脏）。
-
-脚本：`pmx_render.py`（导入 + 三点光）、`mtr_render.py`（模板渲染器三步）、`bl2ai_masked.py`（ComfyUI 分区重绘）。
+这条链路已独立成仓：[saya-blender-ai](https://github.com/sayasaikou/saya-blender-ai)。
 
 ## 实证结果
 
@@ -98,7 +94,7 @@ L4 汇总报告   带证据等级，被时间预算砍掉的步骤显式标注�
 | **dsh-handoff** | 核对脚本每次实测 6 类环境事实（进程 / 计划任务 / 文件时间戳 / 引用路径存活 / 插件加载 / 指纹时间），输出带时间戳 ⇒ 「已核对」可追溯 |
 | **thermal-monitor** | 通过 MAHM 共享内存读到 **91 项指标**，无需驱动或 SDK；双烤实测采样 449 点，定位到瓶颈为厂商功耗墙（GPU 172 W / CPU 65 W） |
 | **comfy-pipeline** | 本机实测速度：Flux 1024²/4 步 ≈ **14.1 s** ｜ Illustrious 832×1216/28 步 ≈ **14.1 s** ｜ Anima turbo 1024²/6 步 ≈ **12.1 s** |
-| **blender-mmd** | ① 同底图 denoise 0.30 → 0.40 → **0.50 直接换头**（跨模型重绘上界更低）<br>② 链式 3×0.15 保身份，但画风提升近乎为零 ⇒ 保身份与提画风共用同一个旋钮<br>③ 分区 mask 只锁脸：脸保持、衣服与背景重绘；把头发也锁住则发丝质感无法改变<br>④ ControlNet 用 **lineart 0.6** 可用，用 tile 会改脸、发脏 |
+| **blender-mmd** | denoise 上界、分区 mask、lineart 等实测结论已迁至独立仓 `saya-blender-ai` |
 | **snapshot-tools** | 默认干跑 + 写入前逐文件另存；还原前**先检查服务是否在运行**（服务运行中替换其文件是本工具最易造成的自伤） |
 | **平台坑（docs/）** | 跨引擎实测：`[int] + '/'` **两个引擎都炸**；中文只在「字符串里奇数个汉字 + 紧跟 ASCII 元字符」时才真炸（注释里的中文安全）；`.bat` 的 LF 换行会让 cmd **吃掉下一行首字符** |
 
@@ -110,8 +106,6 @@ L4 汇总报告   带证据等级，被时间预算砍掉的步骤显式标注�
 | 提示词驱动「模型自己记录状态」 | 机械性动作交给模型自觉会失败（它当成可选建议）⇒ 改成事件钩子硬编码 |
 | 对整图直接提问细节 | 4 MP 图缩到模型输入尺寸后细节合并，模型会"编"（把两层衣服说成一件）⇒ 必须先裁出放大 |
 | AI 超分放大裁块 | 大块超分产出 38.8 MB 无法使用的巨图、且更糊 ⇒ **只在小块（信息少）时用**；小块实测清晰度提升 **18.6 倍** |
-| 把 MMD 的 toon 材质硬换成 PBR 节点 | 发黑、斑驳、高光碎裂：MMD 的 diffuse 贴图**烘了光照**，不是纯 albedo，当 albedo 用会把阴影叠两遍 ⇒ 保留原渲染，把材质交给低 denoise 重绘 |
-| 用 Cycles 替换 EEVEE 以提升真实感 | 灯光是按 EEVEE 调的，换渲染器后红伞反弹过曝、脸被压黑；补 HDRI 与面部补光后只能打平 EEVEE ⇒ 不换 |
 
 ## 复现须知
 
@@ -121,7 +115,7 @@ L4 汇总报告   带证据等级，被时间预算砍掉的步骤显式标注�
 4. `vision-tools/` 需要 Python 3.10+ 与 `Pillow`；多模型后端与本地 OCR 层都是可选的，**没配 Key 的后端会被自动跳过**，零配置也能跑本地算法层。其 `testset/images/` 有意不附带图片，打分前需自备（见该目录 README）。
 5. 文档中的实测数据均来自特定测试机，不同硬件配置下结论可能不同，相关机型信息已在各文档中说明。
 6. 本仓库组件依赖 Windows 平台（计划任务、MAHM 共享内存、PE 子系统行为、硬链接语义均为平台特性）。
-7. lender-mmd/ 需要 Blender 4.x 与 mmd_tools 扩展，模板渲染路径另需 MMD_Template_Renderer；AI 重绘需要本地 ComfyUI、SDXL 系底模与 ControlNet union。MMD 模型与贴图不随仓附带。
+7. Blender / MMD 链路的依赖与复现前提见独立仓 [saya-blender-ai](https://github.com/sayasaikou/saya-blender-ai)。
 
 ## 许可
 
